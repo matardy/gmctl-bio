@@ -1,0 +1,267 @@
+export const EXPERIENCE = [
+  {
+    id: 'clarika',
+    yr: '2025 →', durEn: '9 mo', durEs: '9 m',
+    role: 'Senior AI Engineer',
+    org: 'Clarika Software + Innovation',
+    locEn: 'New York, US · Remote', locEs: 'Nueva York, EE.UU · Remoto',
+    descEn: 'Leading AI work on smart agents for enterprise clients — the kind that automate workflows, talk to customers, and reliably ship to production.',
+    descEs: 'Liderando el trabajo de IA en agentes inteligentes para clientes enterprise — los que automatizan flujos, conversan con clientes y llegan a producción de forma confiable.',
+    tags: ['AI Agents', 'Reliability', 'Quality'],
+    cur: true,
+  },
+  {
+    id: 'mercately',
+    yr: '2025', durEn: '7 mo', durEs: '7 m',
+    role: 'Senior AI Engineer · Head of AI',
+    org: 'Mercately',
+    locEn: 'Quito, Ecuador', locEs: 'Quito, Ecuador',
+    descEn: 'Led the AI team. Set the roadmap, hired the team, and designed the chatbots that help businesses sell over WhatsApp.',
+    descEs: 'Lideré el equipo de IA. Definí el roadmap, contraté al equipo y diseñé los chatbots que ayudan a negocios a vender por WhatsApp.',
+    tags: ['Leadership', 'Chatbots', 'WhatsApp'],
+    cur: false,
+  },
+  {
+    id: 'jelou',
+    yr: '2024', durEn: '9 mo', durEs: '9 m',
+    role: 'Research Developer · AI Engineer',
+    org: 'Jelou AI',
+    locEn: 'New York, US · Remote', locEs: 'Nueva York · Remoto',
+    descEn: 'Rebuilt an AI assistant to answer 75% faster. Turned thousands of past conversations into a smart memory the bot could search, and improved how it understands voice.',
+    descEs: 'Reconstruí un asistente de IA para que respondiera 75% más rápido. Convertí miles de conversaciones pasadas en una memoria que el bot podía consultar, y mejoré cómo entiende voz.',
+    tags: ['Performance', 'Smart search', 'Voice AI'],
+    cur: false,
+  },
+  {
+    id: 'aidev',
+    yr: '2023', durEn: '8 mo', durEs: '8 m',
+    role: 'AI Engineer · AWS Developer',
+    org: 'AI Dev Group',
+    locEn: 'Quito, Ecuador', locEs: 'Quito, Ecuador',
+    descEn: 'Marketing automation with LangChain + GenAI. Scalable Flask backend on AWS (EC2, S3, DynamoDB, Lambda, Cognito). SaaS with Stripe + PayPal, full DevOps in Docker Compose.',
+    descEs: 'Automatización de marketing con LangChain y GenAI. Backend Flask escalable en AWS (EC2, S3, DynamoDB, Lambda, Cognito). SaaS con Stripe y PayPal, DevOps en Docker Compose.',
+    tags: ['AWS', 'LangChain', 'Flask', 'SaaS'],
+    cur: false,
+  },
+  {
+    id: 'pichincha',
+    yr: '2023', durEn: '7 mo', durEs: '7 m',
+    role: 'Data Engineer',
+    org: 'Banco Pichincha',
+    locEn: 'Quito, Ecuador', locEs: 'Quito, Ecuador',
+    descEn: 'Data analytics and cleansing on Azure Databricks with PySpark. Built marketing-cloud pipelines reaching millions of users. Real-time dashboards.',
+    descEs: 'Analítica y limpieza de datos en Azure Databricks con PySpark. Pipelines de marketing cloud alcanzando millones de usuarios. Dashboards en tiempo real.',
+    tags: ['Azure', 'Databricks', 'PySpark'],
+    cur: false,
+  },
+  {
+    id: 'yubox',
+    yr: '2023', durEn: '7 mo', durEs: '7 m',
+    role: 'AI Engineer',
+    org: 'YUBOX',
+    locEn: 'Guayaquil, Ecuador', locEs: 'Guayaquil, Ecuador',
+    descEn: 'Advanced LLM systems with LangChain. RESTful API for an AI chatbot. Quality control for call-centers (sentiment + efficiency). RAG with ChromaDB; Flask + MySQL + Celery + Redis.',
+    descEs: 'Sistemas LLM avanzados con LangChain. API REST para chatbot de IA. Control de calidad para call-centers (sentimiento + eficiencia). RAG con ChromaDB; Flask + MySQL + Celery + Redis.',
+    tags: ['LLMs', 'RAG', 'ChromaDB'],
+    cur: false,
+  },
+  {
+    id: 'wellperf',
+    yr: '2022', durEn: '1y 4mo', durEs: '1a 4m',
+    role: 'IT Director',
+    org: 'WellPerf',
+    locEn: 'Quito, Ecuador', locEs: 'Quito, Ecuador',
+    descEn: 'Built Low-Code apps in Power Apps. Managed all IT tooling, scalable code for analytics + automation. Power Automate flows + SharePoint. Trained interns.',
+    descEs: 'Apps Low-Code en Power Apps. Gestión integral de IT, código escalable para analítica y automatización. Flujos en Power Automate + SharePoint. Capacité internos.',
+    tags: ['Leadership', 'Power Apps'],
+    cur: false,
+  },
+  {
+    id: 'feyneur',
+    yr: '2021', durEn: '1y 9mo', durEs: '1a 9m',
+    role: 'Partner · Data Analyst',
+    org: 'Feyneur Analítica',
+    locEn: 'Remote', locEs: 'Remoto',
+    descEn: 'Co-founder. Implemented tech systems and data analysis to take SMEs to the next level. Public-opinion area lead.',
+    descEs: 'Cofundador. Implementé sistemas tecnológicos y análisis de datos para llevar PYMEs al siguiente nivel. Líder del área de opinión pública.',
+    tags: ['Founder', 'Data'],
+    cur: false,
+  },
+  {
+    id: 'bisel',
+    yr: '2020', durEn: '1y 5mo', durEs: '1a 5m',
+    role: 'Data Analyst · IT Consultant',
+    org: 'Bisel',
+    locEn: 'Guayaquil, Ecuador', locEs: 'Guayaquil, Ecuador',
+    descEn: 'Process automation and operational optimization. Designed a geolocation dashboard analyzing patient distribution to optimize logistics.',
+    descEs: 'Automatización de procesos y optimización operativa. Diseñé un dashboard de geolocalización para analizar la distribución de pacientes y optimizar logística.',
+    tags: ['Analytics', 'BI'],
+    cur: false,
+  },
+];
+
+export const EDUCATION = [
+  {
+    id: 'epn-cs',
+    yr: '2021–2025',
+    role: 'Computer Science & Engineering',
+    org: 'Escuela Politécnica Nacional',
+    descEn: 'Software systems, algorithms, ML foundations.',
+    descEs: 'Sistemas de software, algoritmos, fundamentos de ML.',
+    tags: ['CS', 'EPN'],
+  },
+  {
+    id: 'epn-phys',
+    yr: '2018–2021',
+    role: 'BSc Physics',
+    org: 'Escuela Politécnica Nacional',
+    descEn: 'Foundation in math, modeling, and scientific reasoning.',
+    descEs: 'Base en matemáticas, modelado y razonamiento científico.',
+    tags: ['Physics', 'EPN'],
+  },
+];
+
+export const PROJECTS = [
+  {
+    tag: 'AGENTS · 2025',
+    title: 'Sales chatbots on WhatsApp',
+    descEn: 'Smart agents that answer customers, send quotes, recover abandoned carts, and hand off to a human when needed.',
+    descEs: 'Agentes inteligentes que atienden clientes, envían cotizaciones, recuperan carritos abandonados y pasan al humano cuando hace falta.',
+    stack: ['AI Agents', 'WhatsApp', 'TypeScript'],
+    ascii: `╭─────────╮\n│ ▲ ▲ ▲ ▲ │\n│ │ │ │ │ │\n╰─┴─┴─┴─┴─╯`,
+  },
+  {
+    tag: 'SEARCH · 2024',
+    title: 'Insight from a million chats',
+    descEn: 'Turned a year of customer conversations into a searchable knowledge base, surfacing the recurring themes a team should care about.',
+    descEs: 'Convertí un año de conversaciones de clientes en una base de conocimiento consultable, mostrando los temas recurrentes que un equipo debería cuidar.',
+    stack: ['Smart search', 'Embeddings', 'Python'],
+    ascii: `▓▓░░▓▓░░▓▓\n░░▓▓░░▓▓░░\n▓▓░░▓▓░░▓▓\n░░▓▓░░▓▓░░`,
+  },
+  {
+    tag: 'PERFORMANCE · 2024',
+    title: 'Made an AI assistant 4x faster',
+    descEn: 'Rebuilt the slow parts of a live AI assistant so replies arrive in under a second instead of several. Same answers, much better experience.',
+    descEs: 'Reconstruí las partes lentas de un asistente de IA en producción para que las respuestas lleguen en menos de un segundo en lugar de varios.',
+    stack: ['Streaming', 'Optimization'],
+    ascii: `╔════════╗\n║ ████░░ ║\n║ 75% ⏷  ║\n╚════════╝`,
+  },
+  {
+    tag: 'EDU · ongoing',
+    title: 'gmctl — career toolkit',
+    descEn: 'Mini playbooks for AI engineers: getting hired, leveling up on LinkedIn, and shipping side-projects that read as senior.',
+    descEs: 'Mini playbooks para ingenieros de IA: cómo ser contratado, subir de nivel en LinkedIn y enviar side-projects que se leen como senior.',
+    stack: ['Notion', 'Loom', '1:1'],
+    ascii: `> gmctl init\n> gmctl plan\n> gmctl ship`,
+  },
+];
+
+export const SERVICES = [
+  {
+    num: '01',
+    titleEn: '1:1 AI Career Mentorship',
+    titleEs: 'Mentoría 1:1 en carrera de IA',
+    descEn: 'Monthly cadence. Roadmap, role-targeting, codebase reviews, technical interview prep.',
+    descEs: 'Cadencia mensual. Roadmap, targeting de roles, code reviews y prep de entrevistas técnicas.',
+    bulletsEn: ['90-min kickoff', '2 sessions / month', 'Async messaging', 'Project review'],
+    bulletsEs: ['Kickoff 90 min', '2 sesiones / mes', 'Mensajería async', 'Revisión de proyecto'],
+    price: '$240',
+    perEn: '/ month',
+    perEs: '/ mes',
+  },
+  {
+    num: '02',
+    titleEn: 'LinkedIn Audit & Rewrite',
+    titleEs: 'Auditoría y rewrite de LinkedIn',
+    descEn: 'Headline, About, Experience, featured. Positioning that recruiters in AI actually click.',
+    descEs: 'Headline, About, Experiencia, featured. Posicionamiento al que recruiters de IA sí hacen click.',
+    bulletsEn: ['Full profile audit', 'Rewritten copy', 'Banner direction', '1 follow-up'],
+    bulletsEs: ['Auditoría completa', 'Copy reescrito', 'Dirección de banner', '1 follow-up'],
+    price: '$180',
+    perEn: 'one-off',
+    perEs: 'único',
+  },
+  {
+    num: '03',
+    titleEn: 'Job Hunt Sprint',
+    titleEs: 'Sprint para conseguir trabajo',
+    descEn: '4-week sprint. CV rewrite, target list, application cadence, mock interviews. Ship offers.',
+    descEs: 'Sprint de 4 semanas. CV reescrito, target list, cadencia de aplicación, entrevistas mock. Cerrar ofertas.',
+    bulletsEn: ['CV + portfolio', 'Target 30 roles', '3 mock interviews', 'Offer review'],
+    bulletsEs: ['CV + portfolio', '30 roles objetivo', '3 entrevistas mock', 'Revisión de oferta'],
+    price: '$680',
+    perEn: '4 weeks',
+    perEs: '4 semanas',
+  },
+];
+
+export const POSTS = [
+  { date: '2026.03.18', title: 'Context engineering is the new prompt engineering', tag: 'AGENTS', read: '7 min' },
+  { date: '2026.02.04', title: 'Why your RAG retrieves junk: a checklist', tag: 'RAG', read: '5 min' },
+  { date: '2025.12.20', title: 'Shipping LLM features without breaking prod', tag: 'LLMOPS', read: '9 min' },
+  { date: '2025.11.02', title: 'A junior-to-senior gap nobody mentions', tag: 'CAREER', read: '4 min' },
+  { date: '2025.09.10', title: 'Evals are tests; treat them like tests', tag: 'EVALS', read: '6 min' },
+];
+
+export const VOICES = [
+  {
+    quoteEn: 'Gutemberg shipped a multi-agent system that genuinely changed how our team supports customers. Rare combo of engineer and researcher.',
+    quoteEs: 'Gutemberg envió un sistema multi-agente que cambió cómo nuestro equipo soporta a clientes. Combinación rara de ingeniero e investigador.',
+    name: 'Andrea M.', role: 'CTO, Mercately',
+  },
+  {
+    quoteEn: 'The mentorship sessions completely re-framed how I look at AI engineering. I closed an offer in 6 weeks.',
+    quoteEs: 'Las sesiones de mentoría replantearon mi forma de ver ingeniería de IA. Cerré una oferta en 6 semanas.',
+    name: 'Daniel R.', role: 'AI Engineer, NYC',
+  },
+  {
+    quoteEn: "He doesn't just write code — he architects systems that survive contact with real users.",
+    quoteEs: 'No solo escribe código — diseña sistemas que sobreviven al contacto con usuarios reales.',
+    name: 'Lucía V.', role: 'PM, Jelou',
+  },
+  {
+    quoteEn: 'My LinkedIn went from invisible to 4 inbound recruiters per week after the audit.',
+    quoteEs: 'Mi LinkedIn pasó de invisible a 4 recruiters entrantes por semana tras la auditoría.',
+    name: 'Mateo P.', role: 'ML Engineer',
+  },
+];
+
+export const CONTACTS = [
+  ['email',    'gutemberg@mendoza.dev',   'mailto:steveenmendoza8@gmail.com'],
+  ['linkedin', '/in/gutembergsmendoza',   'https://linkedin.com/in/gutembergsmendoza'],
+  ['github',   '@gutembergmendoza',       'https://github.com/gutembergmendoza'],
+  ['phone',    '+593 098 786 8186',       'tel:+593987868186'],
+  ['location', 'Quito · Ecuador',         '#'],
+] as const;
+
+export const COPY = {
+  en: {
+    nav: [
+      ['00', 'home'],
+      ['01', 'about'],
+      ['02', 'timeline'],
+      ['03', 'projects'],
+      ['04', 'services'],
+      ['05', 'writing'],
+      ['06', 'voices'],
+      ['07', 'contact'],
+    ],
+    foot: '© 2026 G. Mendoza · hand-built, plain HTML',
+  },
+  es: {
+    nav: [
+      ['00', 'inicio'],
+      ['01', 'sobre mí'],
+      ['02', 'trayectoria'],
+      ['03', 'proyectos'],
+      ['04', 'servicios'],
+      ['05', 'escritos'],
+      ['06', 'voces'],
+      ['07', 'contacto'],
+    ],
+    foot: '© 2026 G. Mendoza · hecho a mano, en HTML plano',
+  },
+} as const;
+
+export type Lang = 'en' | 'es';
+export type TlFilter = 'all' | 'work' | 'edu' | string;
