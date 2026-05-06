@@ -18,9 +18,13 @@ export interface QuotaSnapshot {
 }
 
 export function computeQuotaSnapshot(input: ComputeQuotaSnapshotInput): QuotaSnapshot {
+  const nowMs = input.now.getTime();
   const windowStart = input.now.getTime() - WINDOW_MS;
   const tokensUsed24h = input.events
-    .filter((event) => new Date(event.created_at).getTime() >= windowStart)
+    .filter((event) => {
+      const createdAtMs = new Date(event.created_at).getTime();
+      return createdAtMs >= windowStart && createdAtMs <= nowMs;
+    })
     .reduce((sum, event) => sum + event.total_tokens, 0);
 
   const tokensRemaining24h = Math.max(input.limit - tokensUsed24h, 0);

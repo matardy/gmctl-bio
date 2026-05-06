@@ -13,7 +13,7 @@ export interface VisitorLookupKey {
 
 export interface VisitorLookup {
   primary: VisitorLookupKey;
-  secondary: VisitorLookupKey[];
+  lookupOrder: VisitorLookupKey[];
   ipHash: string | null;
 }
 
@@ -21,7 +21,12 @@ export function buildVisitorLookup(input: BuildVisitorLookupInput): VisitorLooku
   if (input.cookieId) {
     return {
       primary: { kind: 'server_cookie_id', value: input.cookieId },
-      secondary: input.anonId ? [{ kind: 'anon_id', value: input.anonId }] : [],
+      lookupOrder: input.anonId
+        ? [
+            { kind: 'server_cookie_id', value: input.cookieId },
+            { kind: 'anon_id', value: input.anonId },
+          ]
+        : [{ kind: 'server_cookie_id', value: input.cookieId }],
       ipHash: input.ipHash,
     };
   }
@@ -32,7 +37,7 @@ export function buildVisitorLookup(input: BuildVisitorLookupInput): VisitorLooku
 
   return {
     primary: { kind: 'anon_id', value: input.anonId },
-    secondary: [],
+    lookupOrder: [{ kind: 'anon_id', value: input.anonId }],
     ipHash: input.ipHash,
   };
 }

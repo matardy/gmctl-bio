@@ -21,4 +21,19 @@ describe('computeQuotaSnapshot', () => {
   it('marks the visitor exhausted once the limit is reached', () => {
     expect(isQuotaExhausted({ tokensUsed24h: 1000, limit: 1000 })).toBe(true);
   });
+
+  it('excludes future-dated events from the rolling window', () => {
+    const now = new Date('2026-05-05T12:00:00.000Z');
+    const snapshot = computeQuotaSnapshot({
+      now,
+      limit: 1000,
+      events: [
+        { total_tokens: 300, created_at: '2026-05-05T11:30:00.000Z' },
+        { total_tokens: 200, created_at: '2026-05-05T12:30:00.000Z' },
+      ],
+    });
+
+    expect(snapshot.tokensUsed24h).toBe(300);
+    expect(snapshot.tokensRemaining24h).toBe(700);
+  });
 });
