@@ -10,14 +10,21 @@ const HISTORY_LIMIT = 50;
 
 export async function GET(req: NextRequest) {
   const anon_id = req.nextUrl.searchParams.get('anon_id');
+  const session_id = req.nextUrl.searchParams.get('session_id');
   if (!anon_id) return NextResponse.json({ messages: [] });
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('chat_messages')
     .select('role, content, created_at, session_id')
     .eq('anon_id', anon_id)
     .order('created_at', { ascending: false })
     .limit(HISTORY_LIMIT);
+
+  if (session_id) {
+    query = query.eq('session_id', session_id);
+  }
+
+  const { data, error } = await query;
   if (error) return NextResponse.json({ messages: [] }, { status: 500 });
 
   return NextResponse.json({ messages: (data ?? []).reverse() });
