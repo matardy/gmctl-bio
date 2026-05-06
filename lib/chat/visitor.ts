@@ -13,20 +13,19 @@ export interface VisitorLookupKey {
 
 export interface VisitorLookup {
   primary: VisitorLookupKey;
-  lookupOrder: VisitorLookupKey[];
+  secondary: VisitorLookupKey[];
   ipHash: string | null;
+}
+
+export function getVisitorLookupSequence(lookup: VisitorLookup): VisitorLookupKey[] {
+  return [lookup.primary, ...lookup.secondary];
 }
 
 export function buildVisitorLookup(input: BuildVisitorLookupInput): VisitorLookup {
   if (input.cookieId) {
     return {
       primary: { kind: 'server_cookie_id', value: input.cookieId },
-      lookupOrder: input.anonId
-        ? [
-            { kind: 'server_cookie_id', value: input.cookieId },
-            { kind: 'anon_id', value: input.anonId },
-          ]
-        : [{ kind: 'server_cookie_id', value: input.cookieId }],
+      secondary: input.anonId ? [{ kind: 'anon_id', value: input.anonId }] : [],
       ipHash: input.ipHash,
     };
   }
@@ -37,7 +36,7 @@ export function buildVisitorLookup(input: BuildVisitorLookupInput): VisitorLooku
 
   return {
     primary: { kind: 'anon_id', value: input.anonId },
-    lookupOrder: [{ kind: 'anon_id', value: input.anonId }],
+    secondary: [],
     ipHash: input.ipHash,
   };
 }
