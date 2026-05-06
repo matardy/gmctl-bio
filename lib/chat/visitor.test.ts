@@ -1,0 +1,25 @@
+import { describe, expect, it } from 'vitest';
+import { buildVisitorLookup } from './visitor';
+
+describe('buildVisitorLookup', () => {
+  it('prefers a server cookie id when available', () => {
+    const lookup = buildVisitorLookup({
+      anonId: 'anon-1',
+      cookieId: 'cookie-1',
+      ipHash: 'ip-1',
+    });
+
+    expect(lookup.primary.kind).toBe('server_cookie_id');
+    expect(lookup.primary.value).toBe('cookie-1');
+  });
+
+  it('falls back to anon id when there is no cookie', () => {
+    const lookup = buildVisitorLookup({
+      anonId: 'anon-1',
+      cookieId: null,
+      ipHash: 'ip-1',
+    });
+
+    expect(lookup.primary.kind).toBe('anon_id');
+  });
+});
