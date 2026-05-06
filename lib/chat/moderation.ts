@@ -2,6 +2,10 @@ export type TopicVerdict = 'on_topic' | 'off_topic' | 'error';
 export type ModerationActionVerdict = 'allow' | 'warn' | 'block' | 'error';
 
 export function shouldRunTopicModeration(userMessageCount: number, interval: number) {
+  if (!Number.isFinite(interval) || interval <= 0) {
+    throw new RangeError('Invalid moderation interval');
+  }
+
   return userMessageCount > 0 && userMessageCount % interval === 0;
 }
 

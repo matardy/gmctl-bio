@@ -6,6 +6,11 @@ describe('shouldRunTopicModeration', () => {
     expect(shouldRunTopicModeration(8, 8)).toBe(true);
     expect(shouldRunTopicModeration(7, 8)).toBe(false);
   });
+
+  it('throws when the moderation interval is zero or not finite', () => {
+    expect(() => shouldRunTopicModeration(8, 0)).toThrow('Invalid moderation interval');
+    expect(() => shouldRunTopicModeration(8, Number.NaN)).toThrow('Invalid moderation interval');
+  });
 });
 
 describe('getModerationAction', () => {
