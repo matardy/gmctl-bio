@@ -99,3 +99,27 @@ export async function persistUsageEvent(input: PersistUsageEventInput) {
     throw error;
   }
 }
+
+export async function loadQuotaSnapshot(input: {
+  visitorId: string;
+  limit: number;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  const since = new Date(now.getTime() - WINDOW_MS).toISOString();
+  const { data, error } = await supabase
+    .from('chat_usage_events')
+    .select('total_tokens, created_at')
+    .eq('visitor_id', input.visitorId)
+    .gte('created_at', since);
+
+  if (error) {
+    throw error;
+  }
+
+  return computeQuotaSnapshot({
+    now,
+    limit: input.limit,
+    events: data ?? [],
+  });
+}

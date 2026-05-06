@@ -1,25 +1,23 @@
 import { anthropic as anthropicProvider } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { randomUUID } from 'node:crypto';
 import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
   streamText,
-  stepCountIs,
   zodSchema,
   UIMessage,
 } from 'ai';
-import { after } from 'next/server';
 import { z } from 'zod';
 import {
   applyUsageToQuotaSnapshot,
-  computeQuotaSnapshot,
   createEmptyQuotaSnapshot,
+  loadQuotaSnapshot,
   persistUsageEvent,
 } from '@/lib/chat/quota';
 import {
   classifyTopicConversation,
+  getBackendUnavailableCopy,
   getModerationAction,
   getQuotaExceededCopy,
   getTopicPolicyCopy,
@@ -31,8 +29,9 @@ import {
   resolveVisitorIdentity,
 } from '@/lib/chat/visitor';
 import type { Provider } from '@/lib/models';
-import { langfuseProcessor } from '@/lib/otel';
 import { supabase } from '@/lib/supabase';
+
+export const runtime = 'edge';
 
 const nvidia = createOpenAI({
   baseURL: 'https://integrate.api.nvidia.com/v1',
@@ -57,12 +56,13 @@ function getModel(provider: Provider, modelId: string) {
     case 'anthropic':
       return anthropicProvider(modelId as Parameters<typeof anthropicProvider>[0]);
     default:
-      return openrouter.chat('meta-llama/llama-3.3-70b-instruct');
+      return nvidia.chat('deepseek-ai/deepseek-v4-pro');
   }
 }
 
 const SECTIONS = ['home', 'about', 'timeline', 'projects', 'services', 'writing', 'voices', 'contact'] as const;
 type Section = typeof SECTIONS[number];
+
 const CHAT_TOKENS_LIMIT_24H = Number(process.env.CHAT_TOKENS_LIMIT_24H ?? '12000');
 const CHAT_MODERATION_EVERY_N_USER_MESSAGES = Number(process.env.CHAT_MODERATION_EVERY_N_USER_MESSAGES ?? '8');
 const CHAT_MODERATION_MODEL = process.env.CHAT_MODERATION_MODEL ?? 'meta-llama/llama-3.3-70b-instruct:free';
@@ -105,17 +105,23 @@ About Gutemberg:
 Always stay in character as the gmctl terminal agent.`;
 
 function buildQuotaHeaders(input: {
-  tokensUsed24h: number;
-  tokensRemaining24h: number;
   quotaExhausted: boolean;
+  tokensUsed24h?: number;
+  tokensRemaining24h?: number;
   policyVerdict?: string;
 }) {
   const headers: Record<string, string> = {
     'x-chat-quota-exhausted': String(input.quotaExhausted),
-    'x-chat-tokens-used-24h': String(input.tokensUsed24h),
-    'x-chat-tokens-limit-24h': String(CHAT_TOKENS_LIMIT_24H),
-    'x-chat-tokens-remaining-24h': String(input.tokensRemaining24h),
   };
+
+  if (typeof input.tokensUsed24h === 'number') {
+    headers['x-chat-tokens-used-24h'] = String(input.tokensUsed24h);
+    headers['x-chat-tokens-limit-24h'] = String(CHAT_TOKENS_LIMIT_24H);
+  }
+
+  if (typeof input.tokensRemaining24h === 'number') {
+    headers['x-chat-tokens-remaining-24h'] = String(input.tokensRemaining24h);
+  }
 
   if (input.policyVerdict) {
     headers['x-chat-policy-verdict'] = input.policyVerdict;
@@ -131,7 +137,7 @@ function createTextStreamResponse(input: {
   headers: Record<string, string>;
   metadata: Record<string, unknown>;
 }) {
-  const textPartId = randomUUID();
+  const textPartId = crypto.randomUUID();
 
   return createUIMessageStreamResponse({
     headers: input.headers,
@@ -167,6 +173,26 @@ function createTextStreamResponse(input: {
   });
 }
 
+function createBackendUnavailableResponse(input: {
+  messages: UIMessage[];
+  responseMessageId: string;
+}) {
+  return createTextStreamResponse({
+    messages: input.messages,
+    text: getBackendUnavailableCopy(input.messages),
+    responseMessageId: input.responseMessageId,
+    headers: buildQuotaHeaders({
+      quotaExhausted: true,
+      policyVerdict: 'backend_unavailable',
+    }),
+    metadata: {
+      policy: {
+        verdict: 'backend_unavailable',
+      },
+    },
+  });
+}
+
 export async function POST(req: Request) {
   const { messages, provider, model, session_id, anon_id }: {
     messages: UIMessage[];
@@ -176,11 +202,11 @@ export async function POST(req: Request) {
     anon_id?: string;
   } = await req.json();
 
-  const selectedProvider: Provider = provider ?? 'openrouter';
-  const selectedModel = model ?? 'meta-llama/llama-3.3-70b-instruct';
+  const selectedProvider: Provider = provider ?? 'nvidia';
+  const selectedModel = model ?? 'deepseek-ai/deepseek-v4-pro';
   const sessionId = session_id ?? 'unknown';
-  const responseMessageId = randomUUID();
-  let visitorId: string | null = null;
+  const responseMessageId = crypto.randomUUID();
+  let visitorId: string;
   let quotaSnapshot = createEmptyQuotaSnapshot(CHAT_TOKENS_LIMIT_24H);
 
   try {
@@ -191,41 +217,17 @@ export async function POST(req: Request) {
       cookieId: cookie.value,
       ipHash,
     });
+
     visitorId = visitor.id;
-
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: usageRows, error: usageError } = await supabase
-      .from('chat_usage_events')
-      .select('total_tokens, created_at')
-      .eq('visitor_id', visitor.id)
-      .gte('created_at', since);
-
-    if (usageError) {
-      throw usageError;
-    }
-
-    quotaSnapshot = computeQuotaSnapshot({
-      now: new Date(),
+    quotaSnapshot = await loadQuotaSnapshot({
+      visitorId,
       limit: CHAT_TOKENS_LIMIT_24H,
-      events: usageRows ?? [],
     });
 
     if (quotaSnapshot.quotaExhausted) {
-      const metadata = {
-        quota: {
-          tokensUsed24h: quotaSnapshot.tokensUsed24h,
-          tokensLimit24h: CHAT_TOKENS_LIMIT_24H,
-          tokensRemaining24h: quotaSnapshot.tokensRemaining24h,
-          quotaExhausted: true,
-        },
-        policy: {
-          verdict: 'quota_exhausted',
-        },
-      };
-
       try {
         await persistUsageEvent({
-          visitorId: visitor.id,
+          visitorId,
           sessionId,
           messageId: responseMessageId,
           direction: 'blocked_response',
@@ -234,19 +236,31 @@ export async function POST(req: Request) {
           inputTokens: 0,
           outputTokens: 0,
         });
-      } catch {}
+      } catch (error) {
+        console.error('Failed to persist blocked quota response', error);
+      }
 
       return createTextStreamResponse({
         messages,
         text: getQuotaExceededCopy(messages),
         responseMessageId,
         headers: buildQuotaHeaders({
+          quotaExhausted: true,
           tokensUsed24h: quotaSnapshot.tokensUsed24h,
           tokensRemaining24h: quotaSnapshot.tokensRemaining24h,
-          quotaExhausted: true,
           policyVerdict: 'quota_exhausted',
         }),
-        metadata,
+        metadata: {
+          quota: {
+            tokensUsed24h: quotaSnapshot.tokensUsed24h,
+            tokensLimit24h: CHAT_TOKENS_LIMIT_24H,
+            tokensRemaining24h: quotaSnapshot.tokensRemaining24h,
+            quotaExhausted: true,
+          },
+          policy: {
+            verdict: 'quota_exhausted',
+          },
+        },
       });
     }
 
@@ -255,7 +269,7 @@ export async function POST(req: Request) {
       const { data: warningRows, error: warningError } = await supabase
         .from('topic_moderation_events')
         .select('id')
-        .eq('visitor_id', visitor.id)
+        .eq('visitor_id', visitorId)
         .eq('verdict', 'warn')
         .limit(1);
 
@@ -274,24 +288,25 @@ export async function POST(req: Request) {
         alreadyWarned: (warningRows?.length ?? 0) > 0,
       });
 
-      try {
-        const { error } = await supabase.from('topic_moderation_events').insert({
-          visitor_id: visitor.id,
+      const { error: moderationEventError } = await supabase
+        .from('topic_moderation_events')
+        .insert({
+          visitor_id: visitorId,
           session_id: sessionId,
           checked_after_user_message_count: userMessageCount,
           verdict: moderationAction.verdict,
           reason_code: moderationVerdict.reasonCode,
           raw_label: moderationVerdict.rawLabel,
         });
-        if (error) {
-          throw error;
-        }
-      } catch {}
+
+      if (moderationEventError) {
+        throw moderationEventError;
+      }
 
       if (moderationVerdict.usage) {
         try {
           await persistUsageEvent({
-            visitorId: visitor.id,
+            visitorId,
             sessionId,
             messageId: `moderation:${responseMessageId}`,
             direction: 'moderator_check',
@@ -300,27 +315,17 @@ export async function POST(req: Request) {
             inputTokens: moderationVerdict.usage.inputTokens,
             outputTokens: moderationVerdict.usage.outputTokens,
           });
-        } catch {}
+        } catch (error) {
+          console.error('Failed to persist moderation usage', error);
+        }
       }
 
       if (!moderationAction.shouldCallMainModel) {
         const policyVerdict = moderationAction.verdict === 'block' ? 'block' : 'warn';
-        const metadata = {
-          quota: {
-            tokensUsed24h: quotaSnapshot.tokensUsed24h,
-            tokensLimit24h: CHAT_TOKENS_LIMIT_24H,
-            tokensRemaining24h: quotaSnapshot.tokensRemaining24h,
-            quotaExhausted: quotaSnapshot.quotaExhausted,
-          },
-          policy: {
-            verdict: policyVerdict,
-            reasonCode: moderationVerdict.reasonCode,
-          },
-        };
 
         try {
           await persistUsageEvent({
-            visitorId: visitor.id,
+            visitorId,
             sessionId,
             messageId: responseMessageId,
             direction: 'blocked_response',
@@ -329,25 +334,41 @@ export async function POST(req: Request) {
             inputTokens: 0,
             outputTokens: 0,
           });
-        } catch {}
+        } catch (error) {
+          console.error('Failed to persist blocked moderation response', error);
+        }
 
         return createTextStreamResponse({
           messages,
           text: getTopicPolicyCopy(policyVerdict, messages),
           responseMessageId,
           headers: buildQuotaHeaders({
+            quotaExhausted: quotaSnapshot.quotaExhausted,
             tokensUsed24h: quotaSnapshot.tokensUsed24h,
             tokensRemaining24h: quotaSnapshot.tokensRemaining24h,
-            quotaExhausted: quotaSnapshot.quotaExhausted,
             policyVerdict,
           }),
-          metadata,
+          metadata: {
+            quota: {
+              tokensUsed24h: quotaSnapshot.tokensUsed24h,
+              tokensLimit24h: CHAT_TOKENS_LIMIT_24H,
+              tokensRemaining24h: quotaSnapshot.tokensRemaining24h,
+              quotaExhausted: quotaSnapshot.quotaExhausted,
+            },
+            policy: {
+              verdict: policyVerdict,
+              reasonCode: moderationVerdict.reasonCode,
+            },
+          },
         });
       }
     }
-  } catch {
-    visitorId = null;
-    quotaSnapshot = createEmptyQuotaSnapshot(CHAT_TOKENS_LIMIT_24H);
+  } catch (error) {
+    console.error('Failed to load visitor or quota state', error);
+    return createBackendUnavailableResponse({
+      messages,
+      responseMessageId,
+    });
   }
 
   const result = streamText({
@@ -355,7 +376,6 @@ export async function POST(req: Request) {
     system: SYSTEM,
     messages: await convertToModelMessages(messages),
     maxOutputTokens: 200,
-    stopWhen: stepCountIs(2),
     tools: {
       navigate: {
         description: 'Navigate to a section of the website. Call this when the user wants to see a specific section or when navigating there would be helpful.',
@@ -365,45 +385,15 @@ export async function POST(req: Request) {
         execute: async ({ section }: { section: Section }) => ({ section }),
       },
     },
-    experimental_telemetry: {
-      isEnabled: true,
-      metadata: {
-        session_id: session_id ?? 'unknown',
-        provider: selectedProvider,
-        model_id: selectedModel,
-      },
-    },
-  });
-
-  after(async () => {
-    try {
-      if (visitorId) {
-        const usage = await result.totalUsage;
-        await persistUsageEvent({
-          visitorId,
-          sessionId,
-          messageId: responseMessageId,
-          direction: 'assistant_output',
-          provider: selectedProvider,
-          model: selectedModel,
-          inputTokens: usage.inputTokens ?? 0,
-          outputTokens: usage.outputTokens ?? 0,
-        });
-      }
-    } catch {}
-
-    try {
-      await langfuseProcessor.forceFlush();
-    } catch {}
   });
 
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
     generateMessageId: () => responseMessageId,
     headers: buildQuotaHeaders({
+      quotaExhausted: quotaSnapshot.quotaExhausted,
       tokensUsed24h: quotaSnapshot.tokensUsed24h,
       tokensRemaining24h: quotaSnapshot.tokensRemaining24h,
-      quotaExhausted: quotaSnapshot.quotaExhausted,
     }),
     messageMetadata: ({ part }) => {
       if (part.type === 'start') {
@@ -440,6 +430,23 @@ export async function POST(req: Request) {
       }
 
       return undefined;
+    },
+    onFinish: async () => {
+      try {
+        const usage = await result.totalUsage;
+        await persistUsageEvent({
+          visitorId,
+          sessionId,
+          messageId: responseMessageId,
+          direction: 'assistant_output',
+          provider: selectedProvider,
+          model: selectedModel,
+          inputTokens: usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+        });
+      } catch (error) {
+        console.error('Failed to persist assistant usage', error);
+      }
     },
   });
 }

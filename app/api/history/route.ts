@@ -10,31 +10,14 @@ const HISTORY_LIMIT = 50;
 
 export async function GET(req: NextRequest) {
   const anon_id = req.nextUrl.searchParams.get('anon_id');
-  const session_id = req.nextUrl.searchParams.get('session_id');
   if (!anon_id) return NextResponse.json({ messages: [] });
 
-  try {
-    const cookie = await getOrCreateVisitorCookieId();
-    const ipHash = await getRequestIpHash();
-    await resolveVisitorIdentity({
-      anonId: anon_id,
-      cookieId: cookie.value,
-      ipHash,
-    });
-  } catch {
-    // history retrieval should keep working even if visitor resolution fails
-  }
-
-  let query = supabase
+  const { data, error } = await supabase
     .from('chat_messages')
     .select('role, content, created_at, session_id')
     .eq('anon_id', anon_id)
     .order('created_at', { ascending: false })
     .limit(HISTORY_LIMIT);
-
-  if (session_id) query = query.eq('session_id', session_id);
-
-  const { data, error } = await query;
   if (error) return NextResponse.json({ messages: [] }, { status: 500 });
 
   return NextResponse.json({ messages: (data ?? []).reverse() });
@@ -53,7 +36,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'missing fields' }, { status: 400 });
   }
 
-  let visitor_id: string | null = null;
   try {
     const cookie = await getOrCreateVisitorCookieId();
     const ipHash = await getRequestIpHash();
@@ -62,15 +44,13 @@ export async function POST(req: NextRequest) {
       cookieId: cookie.value,
       ipHash,
     });
-    visitor_id = visitor.id;
+    const { error } = await supabase
+      .from('chat_messages')
+      .insert({ anon_id, session_id, visitor_id: visitor.id, role, content });
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   } catch {
-    visitor_id = null;
+    return NextResponse.json({ error: 'visitor_unavailable' }, { status: 503 });
   }
-
-  const { error } = await supabase
-    .from('chat_messages')
-    .insert({ anon_id, session_id, visitor_id, role, content });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

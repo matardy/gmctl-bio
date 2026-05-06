@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { cookies, headers } from 'next/headers';
 import { supabase } from '@/lib/supabase';
 
 export const VISITOR_COOKIE_NAME = 'gmctl_vid';
+
+const VISITOR_SELECT = 'id, anon_id, server_cookie_id, current_ip_hash, last_seen_at';
 
 export interface BuildVisitorLookupInput {
   anonId: string | null;
@@ -70,7 +71,12 @@ export async function getRequestIpHash() {
     return null;
   }
 
-  return createHash('sha256').update(rawIp).digest('hex');
+  const encodedIp = new TextEncoder().encode(rawIp);
+  const digest = await crypto.subtle.digest('SHA-256', encodedIp);
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 export async function getOrCreateVisitorCookieId(): Promise<VisitorCookieResult> {
@@ -81,7 +87,7 @@ export async function getOrCreateVisitorCookieId(): Promise<VisitorCookieResult>
     return { value: existing, isNew: false };
   }
 
-  const value = randomUUID();
+  const value = crypto.randomUUID();
   cookieStore.set(VISITOR_COOKIE_NAME, value, {
     httpOnly: true,
     sameSite: 'lax',
@@ -93,18 +99,39 @@ export async function getOrCreateVisitorCookieId(): Promise<VisitorCookieResult>
   return { value, isNew: true };
 }
 
-async function findVisitorByKey(key: VisitorLookupKey) {
+async function queryVisitorsByKey(key: VisitorLookupKey) {
   const { data, error } = await supabase
     .from('visitor_identities')
-    .select('id, anon_id, server_cookie_id, current_ip_hash, last_seen_at')
+    .select(VISITOR_SELECT)
     .eq(key.kind, key.value)
-    .limit(1);
+    .limit(2);
 
   if (error) {
     throw error;
   }
 
-  return (data?.[0] as VisitorIdentity | undefined) ?? null;
+  if ((data?.length ?? 0) > 1) {
+    throw new Error(`Multiple visitor rows found for ${key.kind}`);
+  }
+
+  return (data ?? []) as VisitorIdentity[];
+}
+
+async function collectVisitorCandidates(lookup: VisitorLookup) {
+  const visitors: VisitorIdentity[] = [];
+  const seenIds = new Set<string>();
+
+  for (const key of getVisitorLookupSequence(lookup)) {
+    const visitor = (await queryVisitorsByKey(key))[0];
+    if (!visitor || seenIds.has(visitor.id)) {
+      continue;
+    }
+
+    seenIds.add(visitor.id);
+    visitors.push(visitor);
+  }
+
+  return visitors;
 }
 
 function mergeVisitorIdentity(
@@ -117,32 +144,90 @@ function mergeVisitorIdentity(
   };
 }
 
-export async function findVisitorIdentity(input: BuildVisitorLookupInput) {
-  const lookup = buildVisitorLookup(input);
+function buildCanonicalVisitorUpdates(input: {
+  canonical: VisitorIdentity;
+  relatedVisitors: VisitorIdentity[];
+  lookup: VisitorLookup;
+  now: string;
+}) {
+  const { canonical, relatedVisitors, lookup, now } = input;
+  const updates: Partial<VisitorIdentity> = {
+    last_seen_at: now,
+  };
 
-  for (const key of getVisitorLookupSequence(lookup)) {
-    const visitor = await findVisitorByKey(key);
-    if (visitor) {
-      return visitor;
+  const relatedAnonId =
+    lookup.secondary.find((key) => key.kind === 'anon_id')?.value ??
+    canonical.anon_id ??
+    relatedVisitors.find((visitor) => visitor.anon_id)?.anon_id ??
+    null;
+
+  const relatedCookieId =
+    lookup.primary.kind === 'server_cookie_id'
+      ? lookup.primary.value
+      : canonical.server_cookie_id ??
+        relatedVisitors.find((visitor) => visitor.server_cookie_id)?.server_cookie_id ??
+        null;
+
+  const relatedIpHash =
+    lookup.ipHash ??
+    canonical.current_ip_hash ??
+    relatedVisitors.find((visitor) => visitor.current_ip_hash)?.current_ip_hash ??
+    null;
+
+  if (relatedAnonId && canonical.anon_id !== relatedAnonId) {
+    updates.anon_id = relatedAnonId;
+  }
+
+  if (relatedCookieId && canonical.server_cookie_id !== relatedCookieId) {
+    updates.server_cookie_id = relatedCookieId;
+  }
+
+  if (relatedIpHash && canonical.current_ip_hash !== relatedIpHash) {
+    updates.current_ip_hash = relatedIpHash;
+  }
+
+  return updates;
+}
+
+async function moveVisitorReferences(input: {
+  sourceVisitorId: string;
+  targetVisitorId: string;
+}) {
+  const tables = ['chat_messages', 'chat_usage_events', 'topic_moderation_events'] as const;
+
+  for (const table of tables) {
+    const { error } = await supabase
+      .from(table)
+      .update({ visitor_id: input.targetVisitorId })
+      .eq('visitor_id', input.sourceVisitorId);
+
+    if (error) {
+      throw error;
     }
   }
 
-  return null;
+  const { error } = await supabase
+    .from('visitor_identities')
+    .delete()
+    .eq('id', input.sourceVisitorId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function findVisitorIdentity(input: BuildVisitorLookupInput) {
+  const lookup = buildVisitorLookup(input);
+  const visitors = await collectVisitorCandidates(lookup);
+  return visitors[0] ?? null;
 }
 
 export async function resolveVisitorIdentity(input: BuildVisitorLookupInput) {
   const lookup = buildVisitorLookup(input);
   const now = new Date().toISOString();
-  let visitor: VisitorIdentity | null = null;
+  let visitors = await collectVisitorCandidates(lookup);
 
-  for (const key of getVisitorLookupSequence(lookup)) {
-    visitor = await findVisitorByKey(key);
-    if (visitor) {
-      break;
-    }
-  }
-
-  if (!visitor) {
+  if (visitors.length === 0) {
     const { data, error } = await supabase
       .from('visitor_identities')
       .insert({
@@ -151,60 +236,62 @@ export async function resolveVisitorIdentity(input: BuildVisitorLookupInput) {
         current_ip_hash: input.ipHash,
         last_seen_at: now,
       })
-      .select('id, anon_id, server_cookie_id, current_ip_hash, last_seen_at')
+      .select(VISITOR_SELECT)
       .single();
 
     if (error) {
-      const existingVisitor = await findVisitorIdentity(input);
-      if (existingVisitor) {
-        return existingVisitor;
+      visitors = await collectVisitorCandidates(lookup);
+      if (visitors.length === 0) {
+        throw error;
       }
-
-      throw error;
+    } else {
+      visitors = [data as VisitorIdentity];
     }
-
-    return data as VisitorIdentity;
   }
 
-  const updates: Partial<VisitorIdentity> = {
-    last_seen_at: now,
-  };
-
-  if (lookup.ipHash && visitor.current_ip_hash !== lookup.ipHash) {
-    updates.current_ip_hash = lookup.ipHash;
-  }
-
-  for (const key of getVisitorLookupSequence(lookup)) {
-    if (visitor[key.kind] === key.value || visitor[key.kind] != null) {
+  let canonicalVisitor = visitors[0];
+  for (const duplicateVisitor of visitors.slice(1)) {
+    if (duplicateVisitor.id === canonicalVisitor.id) {
       continue;
     }
 
-    const conflictingVisitor = await findVisitorByKey(key);
-    if (conflictingVisitor && conflictingVisitor.id !== visitor.id) {
-      continue;
-    }
+    await moveVisitorReferences({
+      sourceVisitorId: duplicateVisitor.id,
+      targetVisitorId: canonicalVisitor.id,
+    });
 
-    updates[key.kind] = key.value;
+    canonicalVisitor = mergeVisitorIdentity(canonicalVisitor, {
+      anon_id: canonicalVisitor.anon_id ?? duplicateVisitor.anon_id,
+      server_cookie_id: canonicalVisitor.server_cookie_id ?? duplicateVisitor.server_cookie_id,
+      current_ip_hash: canonicalVisitor.current_ip_hash ?? duplicateVisitor.current_ip_hash,
+    });
   }
+
+  const updates = buildCanonicalVisitorUpdates({
+    canonical: canonicalVisitor,
+    relatedVisitors: visitors,
+    lookup,
+    now,
+  });
 
   if (Object.keys(updates).length === 1 && updates.last_seen_at) {
     const { error } = await supabase
       .from('visitor_identities')
       .update({ last_seen_at: updates.last_seen_at })
-      .eq('id', visitor.id);
+      .eq('id', canonicalVisitor.id);
 
     if (error) {
       throw error;
     }
 
-    return mergeVisitorIdentity(visitor, updates);
+    return mergeVisitorIdentity(canonicalVisitor, updates);
   }
 
   const { data, error } = await supabase
     .from('visitor_identities')
     .update(updates)
-    .eq('id', visitor.id)
-    .select('id, anon_id, server_cookie_id, current_ip_hash, last_seen_at')
+    .eq('id', canonicalVisitor.id)
+    .select(VISITOR_SELECT)
     .single();
 
   if (error) {

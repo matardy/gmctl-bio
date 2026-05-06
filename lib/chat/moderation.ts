@@ -4,6 +4,45 @@ import { z } from 'zod';
 
 export type TopicVerdict = 'on_topic' | 'off_topic' | 'error';
 export type ModerationActionVerdict = 'allow' | 'warn' | 'block' | 'error';
+type ResponseLanguage = 'en' | 'es';
+
+const SPANISH_HINTS = new Set([
+  'hola',
+  'gracias',
+  'sobre',
+  'proyectos',
+  'servicios',
+  'contacto',
+  'escritos',
+  'experiencia',
+  'trayectoria',
+  'trabajo',
+  'quiero',
+  'puedes',
+  'puedo',
+  'como',
+  'para',
+  'con',
+]);
+
+const ENGLISH_HINTS = new Set([
+  'hello',
+  'hi',
+  'thanks',
+  'about',
+  'projects',
+  'services',
+  'contact',
+  'writing',
+  'experience',
+  'career',
+  'work',
+  'can',
+  'could',
+  'would',
+  'please',
+  'tell',
+]);
 
 const openrouter = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
@@ -70,14 +109,34 @@ function inferResponseLanguage(messages: UIMessage[]) {
     .reverse()
     .find((message) => message.role === 'user');
   const text = lastUserText ? getMessageText(lastUserText).toLowerCase() : '';
+  const tokens = text.match(/\p{L}+/gu) ?? [];
 
-  if (
-    /[¿¡]|\b(hola|gracias|sobre|proyecto|trabajo|servicios|escritos|contacto|gutemberg|ayuda|quiero|puedes|puedo)\b/u.test(text)
-  ) {
+  if (!text.trim()) {
+    return 'en';
+  }
+
+  if (/[¿¡]|[áéíóúñ]/u.test(text)) {
     return 'es';
   }
 
-  return 'en';
+  let spanishScore = 0;
+  let englishScore = 0;
+
+  for (const token of tokens) {
+    if (SPANISH_HINTS.has(token)) {
+      spanishScore += 1;
+    }
+
+    if (ENGLISH_HINTS.has(token)) {
+      englishScore += 1;
+    }
+  }
+
+  return spanishScore > englishScore ? 'es' : 'en';
+}
+
+function getLocalizedCopy(language: ResponseLanguage, copy: { en: string; es: string }) {
+  return language === 'es' ? copy.es : copy.en;
 }
 
 export function getTopicPolicyCopy(
@@ -87,20 +146,30 @@ export function getTopicPolicyCopy(
   const lang = inferResponseLanguage(messages);
 
   if (verdict === 'warn') {
-    return lang === 'es'
-      ? 'Puedo ayudarte con Gutemberg, su experiencia, proyectos, servicios, escritos o contacto.'
-      : 'I can help with Gutemberg, his work, projects, services, writing, or contact.';
+    return getLocalizedCopy(lang, {
+      en: 'I can help with Gutemberg, his work, projects, services, writing, or contact.',
+      es: 'Puedo ayudarte con Gutemberg, su experiencia, proyectos, servicios, escritos o contacto.',
+    });
   }
 
-  return lang === 'es'
-    ? 'Eso está fuera del alcance de este chat. Pregunta por Gutemberg en su lugar.'
-    : 'That is outside this chat\'s scope. Ask about Gutemberg instead.';
+  return getLocalizedCopy(lang, {
+    en: 'That is outside this chat\'s scope. Ask about Gutemberg instead.',
+    es: 'Eso está fuera del alcance de este chat. Pregunta por Gutemberg en su lugar.',
+  });
 }
 
 export function getQuotaExceededCopy(messages: UIMessage[]) {
-  return inferResponseLanguage(messages) === 'es'
-    ? 'La cuota de chat de 24 horas ya se agotó. Intenta de nuevo más tarde o usa contacto.'
-    : 'The 24-hour chat quota is exhausted. Try again later or use contact.';
+  return getLocalizedCopy(inferResponseLanguage(messages), {
+    en: 'The 24-hour chat quota is exhausted. Try again later or use contact.',
+    es: 'La cuota de chat de 24 horas ya se agotó. Intenta de nuevo más tarde o usa contacto.',
+  });
+}
+
+export function getBackendUnavailableCopy(messages: UIMessage[]) {
+  return getLocalizedCopy(inferResponseLanguage(messages), {
+    en: 'Chat is temporarily unavailable while quota checks recover. Try again shortly or use contact.',
+    es: 'El chat no esta disponible mientras se recuperan las verificaciones de cuota. Intenta otra vez pronto o usa contacto.',
+  });
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
