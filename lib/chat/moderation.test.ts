@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getExhaustedReply } from './exhausted-replies';
 import { getModerationAction, shouldRunTopicModeration } from './moderation';
 
 describe('shouldRunTopicModeration', () => {
@@ -33,5 +34,12 @@ describe('getModerationAction', () => {
       verdict: 'error',
       shouldCallMainModel: true,
     });
+  });
+});
+
+describe('getExhaustedReply', () => {
+  it('selects a stable exhausted reply from the localized pool', () => {
+    expect(getExhaustedReply('es', 1)).toBe('esto ahora es teatro. mensajes pregrabados unicamente.');
+    expect(getExhaustedReply('en', 2)).toBe('no budget, no inference. try contact.');
   });
 });
