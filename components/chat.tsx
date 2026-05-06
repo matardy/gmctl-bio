@@ -3,8 +3,10 @@
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, type UIMessage } from 'ai';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getExhaustedReply } from '@/lib/chat/exhausted-replies';
 import type { Lang } from '@/lib/data';
 import { EXPERIENCE } from '@/lib/data';
+import { t } from '@/lib/i18n';
 import { MODELS_BY_PROVIDER, PROVIDER_LABELS, type ModelConfig } from '@/lib/models';
 
 interface ChatProps {
@@ -19,6 +21,26 @@ interface ChatProps {
   onModelChange: (m: ModelConfig) => void;
   className?: string;
   onClose?: () => void;
+}
+
+interface SessionSummary {
+  session_id: string;
+  started_at: string;
+  preview: string;
+  count: number;
+}
+
+interface QuotaState {
+  tokensUsed24h: number;
+  tokensLimit24h: number;
+  tokensRemaining24h: number;
+  quotaExhausted: boolean;
+}
+
+interface StreamUsageState {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 
 const QUICK_EN = ['/about', '/work', '/services', '/writing', '/contact', '/help'];
@@ -108,18 +130,44 @@ function getOrCreateAnonId(): string {
   return id;
 }
 
+function formatSessionDate(iso: string, lang: Lang): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  if (diffDays === 0) return lang === 'en' ? 'today' : 'hoy';
+  if (diffDays === 1) return lang === 'en' ? 'yesterday' : 'ayer';
+  return d.toLocaleDateString(lang === 'es' ? 'es-EC' : 'en-US', { month: 'short', day: 'numeric' });
+}
+
 export function Chat({
   lang, setLang, scrollTo, theme: _theme, setTheme, setTlFilter, setBlogFilter,
   selectedModel, onModelChange, className = '', onClose,
 }: ChatProps) {
+  const i18n = t(lang);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputVal, setInputVal] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const processedToolCalls = useRef(new Set<string>());
   const [anonId, setAnonId] = useState('');
-  const sessionId = useRef('');
+  const sessionId = useRef(crypto.randomUUID());
   const prevStatus = useRef<string>('');
+
+  // History panel state
+  const [showHistory, setShowHistory] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [histLoading, setHistLoading] = useState(false);
+  const [quota, setQuota] = useState<QuotaState>({
+    tokensUsed24h: 0,
+    tokensLimit24h: 0,
+    tokensRemaining24h: 0,
+    quotaExhausted: false,
+  });
+  const [streamUsage, setStreamUsage] = useState<StreamUsageState>({
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+  });
 
   const greetText = lang === 'en'
     ? 'gmctl agent · v1.0 · ready\n\nhello, operator. ask anything about gutemberg, or use commands like /about, /work, /services.\n\ntip: type /help to see everything I can do.'
@@ -129,13 +177,36 @@ export function Chat({
     { id: 'greet', role: 'assistant', parts: [{ type: 'text', text: greetText }] },
   ];
 
+  const messagesRef = useRef<typeof messages>([]);
   const { messages, sendMessage, setMessages, status } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/chat',
-      body: { provider: selectedModel.provider, model: selectedModel.id },
+      body: () => ({
+        provider: selectedModel.provider,
+        model: selectedModel.id,
+        session_id: sessionId.current,
+        anon_id: anonId || undefined,
+      }),
     }),
     messages: makeInitialMsgs(),
   });
+
+  const refreshQuota = useCallback(async (id: string) => {
+    const res = await fetch(`/api/quota?anon_id=${id}`);
+    const data = await res.json() as {
+      tokens_used_24h?: number;
+      tokens_limit_24h?: number;
+      tokens_remaining_24h?: number;
+      quota_exhausted?: boolean;
+    };
+
+    setQuota({
+      tokensUsed24h: data.tokens_used_24h ?? 0,
+      tokensLimit24h: data.tokens_limit_24h ?? 0,
+      tokensRemaining24h: data.tokens_remaining_24h ?? 0,
+      quotaExhausted: data.quota_exhausted ?? false,
+    });
+  }, []);
 
   const saveMessage = useCallback(async (role: 'user' | 'assistant', content: string) => {
     if (!anonId || !sessionId.current || !content) return;
@@ -150,10 +221,9 @@ export function Chat({
     }
   }, [anonId]);
 
-  // Initialize anon identity and load history on mount
+  // Initialize anon identity and load last session on mount
   useEffect(() => {
     const id = getOrCreateAnonId();
-    sessionId.current = crypto.randomUUID();
     setAnonId(id);
 
     fetch(`/api/history?anon_id=${id}`)
@@ -168,6 +238,8 @@ export function Chat({
         setMessages(mapped);
       })
       .catch(() => {});
+
+    refreshQuota(id).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -182,9 +254,46 @@ export function Chat({
           .join('');
         if (text) saveMessage('assistant', text);
       }
+
+      if (anonId) {
+        refreshQuota(anonId).catch(() => {});
+      }
     }
     prevStatus.current = status;
-  }, [status, messages, saveMessage]);
+  }, [status, messages, saveMessage, anonId, refreshQuota]);
+
+  useEffect(() => {
+    const lastAssistant = [...messages].reverse().find(message => message.role === 'assistant');
+    const metadata = (lastAssistant as UIMessage & {
+      metadata?: {
+        quota?: Partial<QuotaState>;
+        usage?: Partial<StreamUsageState>;
+      };
+    } | undefined)?.metadata;
+
+    if (metadata?.quota) {
+      setQuota(current => ({
+        tokensUsed24h: metadata.quota?.tokensUsed24h ?? current.tokensUsed24h,
+        tokensLimit24h: metadata.quota?.tokensLimit24h ?? current.tokensLimit24h,
+        tokensRemaining24h: metadata.quota?.tokensRemaining24h ?? current.tokensRemaining24h,
+        quotaExhausted: metadata.quota?.quotaExhausted ?? current.quotaExhausted,
+      }));
+    }
+
+    if (metadata?.usage) {
+      setStreamUsage({
+        inputTokens: metadata.usage?.inputTokens ?? 0,
+        outputTokens: metadata.usage?.outputTokens ?? 0,
+        totalTokens: metadata.usage?.totalTokens ?? 0,
+      });
+    } else if (status !== 'streaming') {
+      setStreamUsage({
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      });
+    }
+  }, [messages, status]);
 
   // Handle AI navigate tool results
   useEffect(() => {
@@ -207,6 +316,9 @@ export function Chat({
     }
   }, [messages, scrollTo]);
 
+  // Keep messagesRef current for event listeners
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   // Scroll to bottom on new messages
   useEffect(() => {
     const el = bodyRef.current;
@@ -219,10 +331,19 @@ export function Chat({
     async function handleNavEvent(e: Event) {
       const { dest } = (e as CustomEvent<{ dest: string }>).detail;
       try {
+        const recent = messagesRef.current
+          .filter(m => m.id !== 'greet')
+          .slice(-4)
+          .map(m => ({
+            role: m.role,
+            content: m.parts.filter(p => p.type === 'text').map(p => (p as { type: 'text'; text: string }).text).join('').slice(0, 100),
+          }))
+          .filter(m => m.content);
+
         const res = await fetch('/api/quip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ section: dest, lang }),
+          body: JSON.stringify({ section: dest, lang, messages: recent }),
         });
         const { quip } = await res.json() as { quip: string };
         const msg: UIMessage = { id: `quip-${Date.now()}`, role: 'assistant', parts: [{ type: 'text', text: quip }] };
@@ -257,6 +378,40 @@ export function Chat({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [modelOpen]);
+
+  async function openHistory() {
+    if (!anonId) return;
+    setShowHistory(true);
+    setHistLoading(true);
+    try {
+      const res = await fetch(`/api/sessions?anon_id=${anonId}`);
+      const { sessions: data } = await res.json() as { sessions: SessionSummary[] };
+      setSessions(data ?? []);
+    } catch {
+      setSessions([]);
+    } finally {
+      setHistLoading(false);
+    }
+  }
+
+  async function resumeSession(sid: string) {
+    if (!anonId) return;
+    setShowHistory(false);
+    try {
+      const res = await fetch(`/api/history?anon_id=${anonId}&session_id=${sid}`);
+      const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
+      if (!hist?.length) return;
+      const mapped: UIMessage[] = hist.map((m, i) => ({
+        id: `resume-${i}`,
+        role: m.role as 'user' | 'assistant',
+        parts: [{ type: 'text' as const, text: m.content }],
+      }));
+      sessionId.current = sid;
+      setMessages(mapped);
+    } catch {
+      // ignore
+    }
+  }
 
   function pushBot(text: string) {
     const msg: UIMessage = { id: `bot-${Date.now()}`, role: 'assistant', parts: [{ type: 'text', text }] };
@@ -341,6 +496,12 @@ export function Chat({
       setTimeout(() => pushBot(getNavQuip(navDest, lang)), 80);
       return;
     }
+    if (quota.quotaExhausted) {
+      pushUser(val);
+      pushBot(getExhaustedReply(lang, messages.length));
+      scrollTo('contact');
+      return;
+    }
     saveMessage('user', val);
     sendMessage({ text: val });
   }
@@ -363,6 +524,7 @@ export function Chat({
           <button
             className={`model-badge${modelOpen ? ' open' : ''}`}
             onClick={() => setModelOpen(o => !o)}
+            data-tip={i18n.modelTips.badge}
           >
             {selectedModel.label} ▾
           </button>
@@ -390,36 +552,98 @@ export function Chat({
           )}
 
           <button
+            className={`chat-hist-btn${showHistory ? ' active' : ''}`}
+            onClick={() => showHistory ? setShowHistory(false) : openHistory()}
+            data-tip={i18n.modelTips.hist}
+          >
+            {i18n.chat.history}
+          </button>
+          <button
             className="chat-clear-btn"
             onClick={() => setMessages(makeInitialMsgs())}
-            title={lang === 'en' ? 'clear chat' : 'limpiar chat'}
+            data-tip={i18n.modelTips.clear}
           >
-            CLR
+            {i18n.chat.clear}
           </button>
-          <span className="chat-live">live</span>
+          <div className="chat-usage" aria-live="polite">
+            <span>{i18n.chat.quota.used}: {quota.tokensUsed24h}</span>
+            <span>{i18n.chat.quota.remaining}: {quota.tokensRemaining24h}</span>
+            {streamUsage.totalTokens > 0 && <span>msg: {streamUsage.totalTokens}</span>}
+          </div>
+          <span className="chat-live">{i18n.chat.live}</span>
           {onClose && (
             <button className="chat-close-btn" onClick={onClose}>×</button>
           )}
         </div>
       </div>
 
-      <div className="chat-body" ref={bodyRef}>
-        {messages.map((m, idx) => {
-          const isLast = idx === messages.length - 1;
-          const text = m.parts
-            .filter(p => p.type === 'text')
-            .map(p => (p as { type: 'text'; text: string }).text)
-            .join('');
-          if (!text) return null;
-          const kind = m.role === 'user' ? 'user' : m.id === 'greet' ? 'sys' : 'bot';
-          return (
-            <div key={m.id} className={`msg ${kind}`}>
-              {text}
-              {isLast && status === 'streaming' && <span className="stream-cursor">▋</span>}
+      {quota.quotaExhausted && (
+        <div className="chat-quota-banner" aria-live="polite">
+          <strong>{i18n.chat.quota.title}</strong>
+          <span>{i18n.chat.quota.body}</span>
+          <button type="button" onClick={() => scrollTo('contact')}>
+            {i18n.chat.quota.contact}
+          </button>
+        </div>
+      )}
+
+      {/* History panel */}
+      {showHistory ? (
+        <div className="chat-history-panel">
+          <div className="chat-history-header">
+            <button
+              className="chat-history-back"
+              onClick={() => setShowHistory(false)}
+              aria-label="close history"
+            >
+              {i18n.chat.historyBack}
+            </button>
+            <span>{i18n.chat.historyPanel}</span>
+          </div>
+          {histLoading && (
+            <div className="chat-history-empty">{i18n.chat.historyLoading}</div>
+          )}
+          {!histLoading && sessions.length === 0 && (
+            <div className="chat-history-empty">
+              {i18n.chat.historyEmpty}
             </div>
-          );
-        })}
-      </div>
+          )}
+          {!histLoading && sessions.map(s => (
+            <button
+              key={s.session_id}
+              className="chat-history-item"
+              onClick={() => resumeSession(s.session_id)}
+            >
+              <span className="chat-history-date">[{formatSessionDate(s.started_at, lang)}]</span>
+              <span className="chat-history-preview">{s.preview || '(no messages)'}</span>
+              <span className="chat-history-count">{s.count}msg</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="chat-body" ref={bodyRef}>
+          {messages.map((m, idx) => {
+            const isLast = idx === messages.length - 1;
+            const raw = m.parts
+              .filter(p => p.type === 'text')
+              .map(p => (p as { type: 'text'; text: string }).text)
+              .join('');
+            // Strip leaked tool-call JSON some models emit inline as text
+            const text = raw
+              .replace(/\{[^{}]*"name"\s*:\s*"[^"]*"[^{}]*"parameters"\s*:[^}]*\}[^}]*\}/g, '')
+              .replace(/\{"name"\s*:\s*"[^"]*"\s*,\s*"parameters"\s*:\s*\{[^}]*\}\}/g, '')
+              .trim();
+            if (!text) return null;
+            const kind = m.role === 'user' ? 'user' : m.id === 'greet' ? 'sys' : 'bot';
+            return (
+              <div key={m.id} className={`msg ${kind}`}>
+                {text}
+                {isLast && status === 'streaming' && <span className="stream-cursor">▋</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="chat-quick">
         {quick.map(c => (
@@ -433,7 +657,7 @@ export function Chat({
           ref={inputRef}
           value={inputVal}
           onChange={e => setInputVal(e.target.value)}
-          placeholder={lang === 'en' ? 'ask anything · /help' : 'pregunta lo que sea · /ayuda'}
+          placeholder={i18n.chat.placeholder}
           disabled={status === 'submitted' || status === 'streaming'}
           autoComplete="off"
           spellCheck={false}
