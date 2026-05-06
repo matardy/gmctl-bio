@@ -12,12 +12,12 @@ CREATE UNIQUE INDEX idx_visitor_identities_server_cookie_id
   ON visitor_identities(server_cookie_id)
   WHERE server_cookie_id IS NOT NULL;
 
-CREATE INDEX idx_visitor_identities_anon_id
+CREATE UNIQUE INDEX idx_visitor_identities_anon_id
   ON visitor_identities(anon_id)
   WHERE anon_id IS NOT NULL;
 
 ALTER TABLE chat_messages
-  ADD COLUMN visitor_id uuid REFERENCES visitor_identities(id);
+  ADD COLUMN visitor_id uuid REFERENCES visitor_identities(id) ON DELETE SET NULL;
 
 CREATE INDEX idx_chat_messages_visitor_id_created_at
   ON chat_messages(visitor_id, created_at DESC);
@@ -32,7 +32,7 @@ CREATE TABLE chat_usage_events (
   model text NOT NULL,
   input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
   output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
-  total_tokens integer NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
+  total_tokens integer NOT NULL DEFAULT 0 CHECK (total_tokens >= 0 AND total_tokens = input_tokens + output_tokens),
   estimated_cost_usd numeric(12, 6),
   created_at timestamptz NOT NULL DEFAULT now()
 );
