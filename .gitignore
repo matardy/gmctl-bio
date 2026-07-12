@@ -3,3 +3,9 @@
 .next/
 node_modules/
 tsconfig.tsbuildinfo
+
+# local tooling / artifacts
+.claude/
+.agents/
+supabase/.branches/
+supabase/.temp/

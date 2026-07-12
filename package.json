@@ -6,18 +6,27 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:status": "supabase status",
+    "supabase:reset": "supabase db reset"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "jsdom": "^27.0.1",
+    "supabase": "^2.98.2",
     "vitest": "^3.2.4"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.71",
     "@ai-sdk/openai": "^3.0.53",
     "@ai-sdk/react": "^3.0.170",
+    "@langfuse/otel": "^5.2.0",
+    "@langfuse/tracing": "^5.3.0",
+    "@opentelemetry/sdk-node": "^0.217.0",
+    "@opentelemetry/sdk-trace-node": "^2.7.0",
     "@supabase/supabase-js": "^2.105.0",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",

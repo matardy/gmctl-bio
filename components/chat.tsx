@@ -193,6 +193,9 @@ export function Chat({
 
   const refreshQuota = useCallback(async (id: string) => {
     const res = await fetch(`/api/quota?anon_id=${id}`);
+    if (!res.ok) {
+      return;
+    }
     const data = await res.json() as {
       tokens_used_24h?: number;
       tokens_limit_24h?: number;
@@ -518,62 +521,69 @@ export function Chat({
       {onClose && <div className="chat-drag-handle" />}
 
       <div className="chat-head">
-        <span>// gmctl</span>
-        <div className="chat-head-right">
-          {/* Model selector badge */}
-          <button
-            className={`model-badge${modelOpen ? ' open' : ''}`}
-            onClick={() => setModelOpen(o => !o)}
-            data-tip={i18n.modelTips.badge}
-          >
-            {selectedModel.label} ▾
-          </button>
+        <div className="chat-head-top">
+          <span className="chat-head-label">// gmctl</span>
+          <div className="chat-head-actions">
+            {/* Model selector badge */}
+            <button
+              className={`model-badge${modelOpen ? ' open' : ''}`}
+              onClick={() => setModelOpen(o => !o)}
+              data-tip={i18n.modelTips.badge}
+            >
+              {selectedModel.label} ▾
+            </button>
 
-          {/* Model selector panel */}
-          {modelOpen && (
-            <div className="model-panel">
-              {providers.map(prov => (
-                <div key={prov} className="model-group">
-                  <div className="model-group-label">{PROVIDER_LABELS[prov]}</div>
-                  {MODELS_BY_PROVIDER[prov].map(m => (
-                    <button
-                      key={m.id}
-                      className={`model-option${m.id === selectedModel.id ? ' active' : ''}`}
-                      onClick={() => { onModelChange(m); setModelOpen(false); }}
-                    >
-                      <span className="model-option-name">{m.label}</span>
-                      <span className="model-option-ctx">{m.ctx}</span>
-                      {!m.free && <span className="model-option-paid">$</span>}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
+            {/* Model selector panel */}
+            {modelOpen && (
+              <div className="model-panel">
+                {providers.map(prov => (
+                  <div key={prov} className="model-group">
+                    <div className="model-group-label">{PROVIDER_LABELS[prov]}</div>
+                    {MODELS_BY_PROVIDER[prov].map(m => (
+                      <button
+                        key={m.id}
+                        className={`model-option${m.id === selectedModel.id ? ' active' : ''}`}
+                        onClick={() => { onModelChange(m); setModelOpen(false); }}
+                      >
+                        <span className="model-option-name">{m.label}</span>
+                        <span className="model-option-ctx">{m.ctx}</span>
+                        {!m.free && <span className="model-option-paid">$</span>}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
 
-          <button
-            className={`chat-hist-btn${showHistory ? ' active' : ''}`}
-            onClick={() => showHistory ? setShowHistory(false) : openHistory()}
-            data-tip={i18n.modelTips.hist}
-          >
-            {i18n.chat.history}
-          </button>
-          <button
-            className="chat-clear-btn"
-            onClick={() => setMessages(makeInitialMsgs())}
-            data-tip={i18n.modelTips.clear}
-          >
-            {i18n.chat.clear}
-          </button>
+            <button
+              className={`chat-hist-btn${showHistory ? ' active' : ''}`}
+              onClick={() => showHistory ? setShowHistory(false) : openHistory()}
+              data-tip={i18n.modelTips.hist}
+            >
+              {i18n.chat.history}
+            </button>
+            <button
+              className="chat-clear-btn"
+              onClick={() => setMessages(makeInitialMsgs())}
+              data-tip={i18n.modelTips.clear}
+            >
+              {i18n.chat.clear}
+            </button>
+          </div>
+        </div>
+
+        <div className="chat-head-meta">
           <div className="chat-usage" aria-live="polite">
             <span>{i18n.chat.quota.used}: {quota.tokensUsed24h}</span>
             <span>{i18n.chat.quota.remaining}: {quota.tokensRemaining24h}</span>
             {streamUsage.totalTokens > 0 && <span>msg: {streamUsage.totalTokens}</span>}
           </div>
-          <span className="chat-live">{i18n.chat.live}</span>
-          {onClose && (
-            <button className="chat-close-btn" onClick={onClose}>×</button>
-          )}
+          <div className="chat-head-status">
+            <span className="chat-live">{i18n.chat.live}</span>
+            {onClose && (
+              <button className="chat-close-btn" onClick={onClose}>×</button>
+            )}
+          </div>
         </div>
       </div>
 

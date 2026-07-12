@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       window_rolling: true,
       tokens_used_24h: emptySnapshot.tokensUsed24h,
       tokens_remaining_24h: emptySnapshot.tokensRemaining24h,
-      quota_exhausted: true,
+      quota_exhausted: false,
     }, { status: 503 });
   }
 }

@@ -31,6 +31,11 @@
       "sourceType": "github",
       "computedHash": "2c6d0f84ec8ddaeec2648e8d174fd254b1b470e68f05bab512b5fb2eed2da13e"
     },
+    "langfuse": {
+      "source": "langfuse/skills",
+      "sourceType": "github",
+      "computedHash": "eed5993fcdc4cc017aebc8847f0ed316e8197897895901e250cb88db2a2652f7"
+    },
     "next-best-practices": {
       "source": "vercel-labs/next-skills",
       "sourceType": "github",

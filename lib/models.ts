@@ -2,14 +2,14 @@ export type Provider = 'nvidia' | 'openrouter' | 'anthropic';
 
 export interface ModelConfig {
   id: string;
-  label: string;       // short display name shown in UI
+  label: string;
   provider: Provider;
-  ctx: string;         // context window label
+  ctx: string;
   free: boolean;
 }
 
 export const MODELS: ModelConfig[] = [
-  // ── NVIDIA NIM (free) ──────────────────────────────
+  // NVIDIA NIM (free)
   {
     id: 'deepseek-ai/deepseek-v4-pro',
     label: 'deepseek-v4-pro',
@@ -25,7 +25,21 @@ export const MODELS: ModelConfig[] = [
     free: true,
   },
 
-  // ── OpenRouter (free tier) ─────────────────────────
+  // OpenRouter
+  {
+    id: 'meta-llama/llama-3.3-70b-instruct',
+    label: 'llama-3.3-70b',
+    provider: 'openrouter',
+    ctx: '128k',
+    free: false,
+  },
+  {
+    id: 'meta-llama/llama-3.3-70b-instruct:free',
+    label: 'llama-3.3-70b (free)',
+    provider: 'openrouter',
+    ctx: '128k',
+    free: true,
+  },
   {
     id: 'nvidia/nemotron-3-super-120b-a12b:free',
     label: 'nemotron-super-120b',
@@ -38,13 +52,6 @@ export const MODELS: ModelConfig[] = [
     label: 'qwen3-coder-480b',
     provider: 'openrouter',
     ctx: '1M',
-    free: true,
-  },
-  {
-    id: 'meta-llama/llama-3.3-70b-instruct:free',
-    label: 'llama-3.3-70b',
-    provider: 'openrouter',
-    ctx: '128k',
     free: true,
   },
   {
@@ -61,8 +68,15 @@ export const MODELS: ModelConfig[] = [
     ctx: '256k',
     free: true,
   },
+  {
+    id: 'mistralai/mistral-7b-instruct:free',
+    label: 'mistral-7b',
+    provider: 'openrouter',
+    ctx: '32k',
+    free: true,
+  },
 
-  // ── Anthropic ──────────────────────────────────────
+  // Anthropic
   {
     id: 'claude-haiku-4-5-20251001',
     label: 'claude-haiku-4.5',
@@ -79,7 +93,7 @@ export const MODELS: ModelConfig[] = [
   },
 ];
 
-export const DEFAULT_MODEL = MODELS[0];
+export const DEFAULT_MODEL = MODELS.find(m => m.id === 'claude-haiku-4-5-20251001')!;
 
 export const MODELS_BY_PROVIDER: Record<Provider, ModelConfig[]> = {
   nvidia: MODELS.filter(m => m.provider === 'nvidia'),

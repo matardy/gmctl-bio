@@ -1,5 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateObject, type UIMessage } from 'ai';
+import { observe, updateActiveObservation } from '@langfuse/tracing';
 import { z } from 'zod';
 
 export type TopicVerdict = 'on_topic' | 'off_topic' | 'error';
@@ -185,11 +186,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   ]);
 }
 
-export async function classifyTopicConversation(input: {
+const classifyTopicConversationImpl = async (input: {
   messages: UIMessage[];
   model: string;
   timeoutMs: number;
-}): Promise<TopicModerationResult> {
+}): Promise<TopicModerationResult> => {
   const transcript = input.messages
     .slice(-8)
     .map((message) => `${message.role}: ${getMessageText(message)}`)
@@ -203,6 +204,13 @@ export async function classifyTopicConversation(input: {
         schema: moderationSchema,
         temperature: 0,
         maxOutputTokens: 80,
+        experimental_telemetry: {
+          isEnabled: true,
+          metadata: {
+            agent: 'topic-guard',
+            model: input.model,
+          },
+        },
         prompt: [
           'Classify whether this conversation is on-topic for a personal portfolio assistant.',
           'Allowed: Gutemberg Mendoza, his profile, experience, projects, services, writing, testimonials, or contact.',
@@ -216,7 +224,7 @@ export async function classifyTopicConversation(input: {
       input.timeoutMs,
     );
 
-    return {
+    const moderationResult: TopicModerationResult = {
       verdict: result.object.label,
       reasonCode: result.object.reasonCode,
       rawLabel: result.object.label,
@@ -226,12 +234,39 @@ export async function classifyTopicConversation(input: {
         totalTokens: result.usage.totalTokens ?? 0,
       },
     };
+
+    updateActiveObservation({
+      output: moderationResult,
+      metadata: {
+        transcriptPreview: transcript.slice(0, 500),
+      },
+    }, { asType: 'guardrail' });
+
+    return moderationResult;
   } catch {
-    return {
+    const moderationResult: TopicModerationResult = {
       verdict: 'error',
       reasonCode: 'timeout_or_provider_error',
       rawLabel: null,
       usage: null,
     };
+
+    updateActiveObservation({
+      level: 'WARNING',
+      output: moderationResult,
+      statusMessage: 'topic_moderation_error',
+      metadata: {
+        transcriptPreview: transcript.slice(0, 500),
+      },
+    }, { asType: 'guardrail' });
+
+    return moderationResult;
   }
-}
+};
+
+export const classifyTopicConversation = observe(classifyTopicConversationImpl, {
+  name: 'topic-guard',
+  asType: 'guardrail',
+  captureInput: false,
+  captureOutput: true,
+});

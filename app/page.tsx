@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Boot } from '@/components/boot';
 import { Nav } from '@/components/nav';
 import { Chat } from '@/components/chat';
+import { Onboarding } from '@/components/onboarding';
 import { HeroSection } from '@/components/sections/hero';
 import { AboutSection } from '@/components/sections/about';
 import { TimelineSection } from '@/components/sections/timeline';
@@ -18,18 +19,33 @@ import { DEFAULT_MODEL, type ModelConfig } from '@/lib/models';
 
 const SECTION_IDS = ['home', 'about', 'timeline', 'projects', 'services', 'writing', 'voices', 'contact'];
 
-const SECTION_LABEL: Record<string, string> = {
-  home: '00 HOME', about: '01 ABOUT', timeline: '02 WORK',
-  projects: '03 PROJECTS', services: '04 SERVICES',
-  writing: '05 WRITING', voices: '06 VOICES', contact: '07 CONTACT',
+const SECTION_LABELS = {
+  en: {
+    home: '00 HOME', about: '01 ABOUT', timeline: '02 WORK',
+    projects: '03 PROJECTS', services: '04 SERVICES',
+    writing: '05 WRITING', voices: '06 VOICES', contact: '07 CONTACT',
+  },
+  es: {
+    home: '00 INICIO', about: '01 SOBRE MÍ', timeline: '02 TRAYECTORIA',
+    projects: '03 PROYECTOS', services: '04 SERVICIOS',
+    writing: '05 ESCRITOS', voices: '06 VOCES', contact: '07 CONTACTO',
+  },
 };
 
-const MOB_NAV = [
-  { id: 'home',     icon: '■', label: 'home' },
-  { id: 'timeline', icon: '▪', label: 'work' },
-  { id: 'services', icon: '▫', label: 'svc' },
-  { id: 'writing',  icon: '▤', label: 'blog' },
-];
+const MOB_NAV_LABELS = {
+  en: [
+    { id: 'home',     icon: '■', label: 'home' },
+    { id: 'timeline', icon: '▪', label: 'work' },
+    { id: 'services', icon: '▫', label: 'services' },
+    { id: 'writing',  icon: '▤', label: 'blog' },
+  ],
+  es: [
+    { id: 'home',     icon: '■', label: 'inicio' },
+    { id: 'timeline', icon: '▪', label: 'trabajo' },
+    { id: 'services', icon: '▫', label: 'servicios' },
+    { id: 'writing',  icon: '▤', label: 'escritos' },
+  ],
+};
 
 export default function Page() {
   const [lang, setLang] = useState<Lang>('en');
@@ -67,13 +83,14 @@ export default function Page() {
   return (
     <>
       <Boot />
+      <Onboarding lang={lang} />
 
       {/* Mobile sticky top header */}
       <header className="mobile-header">
         <span className="mobile-header-brand">
           GUTEMBERG.<em>M</em>
         </span>
-        <span className="mobile-header-section">{SECTION_LABEL[activeId] ?? '00 HOME'}</span>
+        <span className="mobile-header-section">{SECTION_LABELS[lang][activeId as keyof typeof SECTION_LABELS.en] ?? SECTION_LABELS[lang].home}</span>
       </header>
 
       <div className="app">
@@ -122,7 +139,7 @@ export default function Page() {
       {/* Mobile bottom nav */}
       <nav className="mobile-nav" aria-label="mobile navigation">
         <div className="mobile-nav-inner">
-          {MOB_NAV.map(({ id, icon, label }) => (
+          {MOB_NAV_LABELS[lang].map(({ id, icon, label }) => (
             <a
               key={id}
               href={`#${id}`}
