@@ -1,6 +1,6 @@
 import { createMiddleware } from 'langchain';
 import { persistUsageEvent } from '@/lib/chat/quota';
-import { getRunContext } from './run-context';
+import { getRunContext, gmctlStateSchema } from './run-context';
 
 /**
  * afterModel hook: persists the successful assistant usage event (token
@@ -10,6 +10,7 @@ import { getRunContext } from './run-context';
 export function persistenceMiddleware() {
   return createMiddleware({
     name: 'GmctlPersistence',
+    stateSchema: gmctlStateSchema,
     afterModel: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       hook: async (state: any, runtime: any) => {

@@ -1,5 +1,4 @@
 import { createMiddleware, AIMessage } from 'langchain';
-import { z } from 'zod';
 import {
   loadQuotaSnapshot,
   persistUsageEvent,
@@ -11,7 +10,7 @@ import {
   resolveVisitorIdentity,
 } from '@/lib/chat/visitor';
 import { getQuotaExceededCopy } from '@/lib/chat/moderation';
-import { getRunContext } from './run-context';
+import { getRunContext, gmctlStateSchema } from './run-context';
 
 export interface QuotaMiddlewareConfig {
   limit: number;
@@ -32,9 +31,7 @@ export interface GmctlQuotaState {
 export function quotaMiddleware(config: QuotaMiddlewareConfig) {
   return createMiddleware({
     name: 'GmctlQuota',
-    stateSchema: z.object({
-      gmctlQuota: z.custom<GmctlQuotaState>().optional(),
-    }),
+    stateSchema: gmctlStateSchema,
     beforeModel: {
       canJumpTo: ['end'],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

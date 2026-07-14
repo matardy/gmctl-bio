@@ -7,7 +7,7 @@ import {
   getTopicPolicyCopy,
   shouldRunTopicModeration,
 } from '@/lib/chat/moderation';
-import { getRunContext } from './run-context';
+import { getRunContext, gmctlStateSchema } from './run-context';
 
 export interface ModerationMiddlewareConfig {
   interval: number;
@@ -24,6 +24,7 @@ export interface ModerationMiddlewareConfig {
 export function moderationMiddleware(config: ModerationMiddlewareConfig) {
   return createMiddleware({
     name: 'GmctlModeration',
+    stateSchema: gmctlStateSchema,
     beforeModel: {
       canJumpTo: ['end'],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
