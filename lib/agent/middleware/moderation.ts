@@ -7,6 +7,7 @@ import {
   getTopicPolicyCopy,
   shouldRunTopicModeration,
 } from '@/lib/chat/moderation';
+import { getRunContext } from './run-context';
 
 export interface ModerationMiddlewareConfig {
   interval: number;
@@ -33,8 +34,9 @@ export function moderationMiddleware(config: ModerationMiddlewareConfig) {
         ).length;
         if (!shouldRunTopicModeration(userCount, config.interval)) return;
 
+        const ctx = getRunContext(runtime);
         const visitorId = state.gmctlQuota?.visitorId;
-        const sessionId = runtime?.context?.sessionId ?? 'unknown';
+        const sessionId = ctx.sessionId ?? 'unknown';
 
         const { data: warningRows, error: warningError } = await supabase
           .from('topic_moderation_events')
@@ -71,8 +73,8 @@ export function moderationMiddleware(config: ModerationMiddlewareConfig) {
             sessionId,
             messageId: crypto.randomUUID(),
             direction: 'blocked_response',
-            provider: runtime?.context?.provider ?? 'unknown',
-            model: runtime?.context?.model ?? 'unknown',
+            provider: ctx.provider ?? 'unknown',
+            model: ctx.model ?? 'unknown',
             inputTokens: 0,
             outputTokens: 0,
           }).catch((e) => console.error('persist blocked moderation response', e));

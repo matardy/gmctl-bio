@@ -152,6 +152,12 @@ export class GmctlAgent extends AbstractAgent {
                 anonId: ctx.anonId,
                 sessionId: ctx.sessionId,
               },
+              configurable: {
+                provider: ctx.provider,
+                model: ctx.model,
+                anonId: ctx.anonId,
+                sessionId: ctx.sessionId,
+              },
               callbacks: getLangfuseCallbacks({
                 sessionId: ctx.sessionId,
                 userId: ctx.anonId,

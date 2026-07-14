@@ -1,4 +1,5 @@
 import { createAgent, modelCallLimitMiddleware } from 'langchain';
+import { z } from 'zod';
 import type { Provider } from '@/lib/models';
 import { getChatModel } from './models';
 import { SYSTEM } from './system-prompt';
@@ -28,6 +29,12 @@ export function buildAgent({ provider, model }: BuildAgentOptions) {
     model: getChatModel(provider, model),
     systemPrompt: SYSTEM,
     tools: [navigateTool],
+    contextSchema: z.object({
+      provider: z.string().optional(),
+      model: z.string().optional(),
+      anonId: z.string().optional(),
+      sessionId: z.string().optional(),
+    }),
     middleware: [
       quotaMiddleware({ limit: TOKENS_LIMIT_24H }),
       moderationMiddleware({

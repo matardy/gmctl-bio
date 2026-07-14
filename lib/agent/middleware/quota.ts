@@ -11,6 +11,7 @@ import {
   resolveVisitorIdentity,
 } from '@/lib/chat/visitor';
 import { getQuotaExceededCopy } from '@/lib/chat/moderation';
+import { getRunContext } from './run-context';
 
 export interface QuotaMiddlewareConfig {
   limit: number;
@@ -38,12 +39,21 @@ export function quotaMiddleware(config: QuotaMiddlewareConfig) {
       canJumpTo: ['end'],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       hook: async (state: any, runtime: any) => {
-        const ctx = runtime?.context ?? {};
-        const cookie = await getOrCreateVisitorCookieId();
-        const ipHash = await getRequestIpHash();
+        const ctx = getRunContext(runtime);
+        // Cookie/IP are request-scoped (next/headers). They harden identity but
+        // are best-effort: if the request scope is unavailable (e.g. resolved
+        // through an async stream), fall back to the client-provided anonId.
+        let cookieId: string | null = null;
+        let ipHash: string | null = null;
+        try {
+          cookieId = (await getOrCreateVisitorCookieId()).value;
+          ipHash = await getRequestIpHash();
+        } catch (e) {
+          console.warn('visitor cookie/ip unavailable, using anonId only', e);
+        }
         const visitor = await resolveVisitorIdentity({
           anonId: ctx.anonId ?? null,
-          cookieId: cookie.value,
+          cookieId,
           ipHash,
         });
         const snapshot = await loadQuotaSnapshot({ visitorId: visitor.id, limit: config.limit });

@@ -1,5 +1,6 @@
 import { createMiddleware } from 'langchain';
 import { persistUsageEvent } from '@/lib/chat/quota';
+import { getRunContext } from './run-context';
 
 /**
  * afterModel hook: persists the successful assistant usage event (token
@@ -12,7 +13,7 @@ export function persistenceMiddleware() {
     afterModel: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       hook: async (state: any, runtime: any) => {
-        const ctx = runtime?.context ?? {};
+        const ctx = getRunContext(runtime);
         const last = state.messages[state.messages.length - 1];
         if (!last || last.getType() !== 'ai') return;
 
