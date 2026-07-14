@@ -10,6 +10,7 @@ import {
   type BaseMessage,
 } from '@langchain/core/messages';
 import type { Provider } from '@/lib/models';
+import { getLangfuseCallbacks } from '@/lib/tracing/langfuse';
 import { buildAgent } from './agent';
 import { getMessageText } from './messages';
 
@@ -151,6 +152,11 @@ export class GmctlAgent extends AbstractAgent {
                 anonId: ctx.anonId,
                 sessionId: ctx.sessionId,
               },
+              callbacks: getLangfuseCallbacks({
+                sessionId: ctx.sessionId,
+                userId: ctx.anonId,
+                metadata: { provider: ctx.provider, model: ctx.model },
+              }),
             },
           );
 

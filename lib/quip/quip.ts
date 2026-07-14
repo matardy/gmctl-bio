@@ -1,4 +1,5 @@
 import { getChatModel } from '@/lib/agent/models';
+import { getLangfuseCallbacks } from '@/lib/tracing/langfuse';
 
 const QUIP_MODEL = 'mistralai/mistral-7b-instruct';
 
@@ -31,7 +32,9 @@ export async function generateQuip(input: GenerateQuipInput): Promise<string> {
       : `You're the sarcastic terminal agent in Gutemberg Mendoza's portfolio.${contextBlock}\nWrite ONE very short comment (max 10 words), funny and ironic as user navigates to "${label.en}". Terminal/hacker humor. Just the comment, no quotes.`;
 
   const model = getChatModel('openrouter', QUIP_MODEL);
-  const res = await model.invoke(prompt);
+  const res = await model.invoke(prompt, {
+    callbacks: getLangfuseCallbacks({ metadata: { agent: 'navigation-quip', section: input.section } }),
+  });
   const text = String(res.content).trim().replace(/^["']|["']$/g, '');
   return `→ ${input.section} · ${text}`;
 }
