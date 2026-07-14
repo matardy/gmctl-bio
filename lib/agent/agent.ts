@@ -5,6 +5,7 @@ import { SYSTEM } from './system-prompt';
 import { quotaMiddleware } from './middleware/quota';
 import { moderationMiddleware } from './middleware/moderation';
 import { persistenceMiddleware } from './middleware/persistence';
+import { navigateTool } from './tools/navigate';
 
 const TOKENS_LIMIT_24H = Number(process.env.CHAT_TOKENS_LIMIT_24H ?? '12000');
 const MODERATION_INTERVAL = Number(process.env.CHAT_MODERATION_EVERY_N_USER_MESSAGES ?? '8');
@@ -26,7 +27,7 @@ export function buildAgent({ provider, model }: BuildAgentOptions) {
   return createAgent({
     model: getChatModel(provider, model),
     systemPrompt: SYSTEM,
-    tools: [],
+    tools: [navigateTool],
     middleware: [
       quotaMiddleware({ limit: TOKENS_LIMIT_24H }),
       moderationMiddleware({
