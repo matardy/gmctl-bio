@@ -147,7 +147,9 @@ export function Chat({
       <div className="chat-copilot">
         <CopilotChat
           labels={{
-            chatInputPlaceholder: i18n.chat.placeholder,
+            chatInputPlaceholder: lang === 'es'
+              ? 'Preguntá sobre Gutemberg…'
+              : 'Ask about Gutemberg…',
           }}
         />
       </div>

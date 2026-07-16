@@ -95,6 +95,7 @@ export default function Page() {
   return (
     <CopilotKit
       runtimeUrl="/api/copilotkit"
+      useSingleEndpoint
       properties={{
         provider: selectedModel.provider,
         model: selectedModel.id,

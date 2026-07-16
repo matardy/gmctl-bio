@@ -9,7 +9,11 @@ const copilotRuntime = new CopilotRuntime({
   agents: { default: new GmctlAgent(), gmctl: new GmctlAgent() },
 });
 
-const handler = createCopilotRuntimeHandler({ runtime: copilotRuntime });
+const handler = createCopilotRuntimeHandler({
+  runtime: copilotRuntime,
+  basePath: '/api/copilotkit',
+  mode: 'single-route',
+});
 
 export const GET = (req: Request) => handler(req);
 export const POST = (req: Request) => handler(req);
