@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { CopilotKit } from '@copilotkit/react-core/v2';
+import '@copilotkit/react-core/v2/styles.css';
 import { Boot } from '@/components/boot';
 import { Nav } from '@/components/nav';
 import { Chat } from '@/components/chat';
@@ -52,9 +54,19 @@ export default function Page() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [activeId, setActiveId] = useState('home');
   const [tlFilter, setTlFilter] = useState<TlFilter>('all');
-  const [blogFilter, setBlogFilter] = useState('');
+  const [blogFilter] = useState('');
   const [mobileChat, setMobileChat] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ModelConfig>(DEFAULT_MODEL);
+  const [anonId, setAnonId] = useState('');
+  const sessionId = useRef('');
+
+  useEffect(() => {
+    const key = 'gmctl_anon_id';
+    let id = localStorage.getItem(key);
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem(key, id); }
+    setAnonId(id);
+    if (!sessionId.current) sessionId.current = crypto.randomUUID();
+  }, []);
 
   useEffect(() => {
     document.body.className = `theme-${theme}`;
@@ -81,7 +93,15 @@ export default function Page() {
   }, []);
 
   return (
-    <>
+    <CopilotKit
+      runtimeUrl="/api/copilotkit"
+      properties={{
+        provider: selectedModel.provider,
+        model: selectedModel.id,
+        anonId: anonId || undefined,
+        sessionId: sessionId.current || undefined,
+      }}
+    >
       <Boot />
       <Onboarding lang={lang} />
 
@@ -123,16 +143,11 @@ export default function Page() {
         </main>
 
         <Chat
-          key={selectedModel.id}
           lang={lang}
-          setLang={setLang}
           scrollTo={scrollTo}
-          theme={theme}
-          setTheme={setTheme}
-          setTlFilter={setTlFilter}
-          setBlogFilter={setBlogFilter}
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
+          anonId={anonId}
         />
       </div>
 
@@ -179,19 +194,14 @@ export default function Page() {
       {/* Mobile chat overlay (only when fully open) */}
       <div className={`chat-overlay${mobileChat ? ' open' : ''}`} onClick={() => setMobileChat(false)} />
       <Chat
-        key={`mobile-${selectedModel.id}`}
         lang={lang}
-        setLang={setLang}
         scrollTo={scrollTo}
-        theme={theme}
-        setTheme={setTheme}
-        setTlFilter={setTlFilter}
-        setBlogFilter={setBlogFilter}
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}
+        anonId={anonId}
         className={`chat-mobile${mobileChat ? ' open' : ''}`}
         onClose={() => setMobileChat(false)}
       />
-    </>
+    </CopilotKit>
   );
 }

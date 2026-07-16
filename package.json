@@ -13,6 +13,7 @@
     "supabase:reset": "supabase db reset"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "jsdom": "^27.0.1",
@@ -23,6 +24,8 @@
     "@ai-sdk/anthropic": "^3.0.71",
     "@ai-sdk/openai": "^3.0.53",
     "@ai-sdk/react": "^3.0.170",
+    "@copilotkit/react-core": "^1.62.3",
+    "@copilotkit/react-ui": "^1.62.3",
     "@copilotkit/runtime": "^1.62.3",
     "@copilotkit/sdk-js": "^1.62.3",
     "@langchain/anthropic": "^1.5.1",

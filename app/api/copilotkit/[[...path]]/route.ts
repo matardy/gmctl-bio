@@ -3,8 +3,10 @@ import { GmctlAgent } from '@/lib/agent/ag-ui-agent';
 
 export const runtime = 'nodejs';
 
+// Registered under both the conventional "default" key (used by <CopilotChat>
+// when no agentId is given) and an explicit "gmctl" alias.
 const copilotRuntime = new CopilotRuntime({
-  agents: { gmctl: new GmctlAgent() },
+  agents: { default: new GmctlAgent(), gmctl: new GmctlAgent() },
 });
 
 const handler = createCopilotRuntimeHandler({ runtime: copilotRuntime });
