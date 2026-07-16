@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { CopilotKit } from '@copilotkit/react-core/v2';
 import '@copilotkit/react-core/v2/styles.css';
 import { Boot } from '@/components/boot';
@@ -58,14 +58,14 @@ export default function Page() {
   const [mobileChat, setMobileChat] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ModelConfig>(DEFAULT_MODEL);
   const [anonId, setAnonId] = useState('');
-  const sessionId = useRef('');
+  const [sessionId, setSessionId] = useState('');
 
   useEffect(() => {
     const key = 'gmctl_anon_id';
     let id = localStorage.getItem(key);
     if (!id) { id = crypto.randomUUID(); localStorage.setItem(key, id); }
     setAnonId(id);
-    if (!sessionId.current) sessionId.current = crypto.randomUUID();
+    setSessionId((s) => s || crypto.randomUUID());
   }, []);
 
   useEffect(() => {
@@ -100,7 +100,7 @@ export default function Page() {
         provider: selectedModel.provider,
         model: selectedModel.id,
         anonId: anonId || undefined,
-        sessionId: sessionId.current || undefined,
+        sessionId: sessionId || undefined,
       }}
     >
       <Boot />
@@ -154,7 +154,8 @@ export default function Page() {
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           anonId={anonId}
-          sessionId={sessionId.current}
+          sessionId={sessionId}
+          setSessionId={setSessionId}
         />
       </div>
 
@@ -210,7 +211,8 @@ export default function Page() {
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}
         anonId={anonId}
-        sessionId={sessionId.current}
+        sessionId={sessionId}
+        setSessionId={setSessionId}
         className={`chat-mobile${mobileChat ? ' open' : ''}`}
         onClose={() => setMobileChat(false)}
       />

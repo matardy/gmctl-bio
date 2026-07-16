@@ -32,6 +32,7 @@ describe('Chat terminal shell', () => {
         onModelChange={noop}
         anonId=""
         sessionId=""
+        setSessionId={noop}
       />,
     );
     expect(screen.getByText('// gmctl agent')).toBeInTheDocument();

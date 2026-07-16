@@ -19,6 +19,7 @@ interface ChatProps {
   onModelChange: (m: ModelConfig) => void;
   anonId: string;
   sessionId: string;
+  setSessionId: (s: string) => void;
   className?: string;
   onClose?: () => void;
 }
@@ -119,7 +120,7 @@ function contentToText(content: any): string {
 export function Chat({
   primary = false,
   lang, setLang, scrollTo, setTheme, setTlFilter, setBlogFilter,
-  selectedModel, onModelChange, anonId, sessionId, className = '', onClose,
+  selectedModel, onModelChange, anonId, sessionId, setSessionId, className = '', onClose,
 }: ChatProps) {
   const i18n = t(lang);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -129,7 +130,6 @@ export function Chat({
   const processedToolCalls = useRef(new Set<string>());
   const loadedRef = useRef(false);
   const prevRunningRef = useRef(false);
-  const sessionIdRef = useRef('');
   const [, forceRender] = useState(0);
   const [quota, setQuota] = useState<QuotaState>({
     tokensUsed24h: 0, tokensLimit24h: 0, tokensRemaining24h: 0, quotaExhausted: false,
@@ -139,9 +139,6 @@ export function Chat({
   const [histLoading, setHistLoading] = useState(false);
 
   const { agent } = useAgent();
-
-  // Track the active session id for saves + resumes (seeded from the prop).
-  if (!sessionIdRef.current && sessionId) sessionIdRef.current = sessionId;
 
   const greetText = lang === 'en'
     ? 'gmctl agent · v1.0 · ready'
@@ -161,18 +158,17 @@ export function Chat({
   }, [agent]);
 
   const saveMessage = useCallback(async (role: 'user' | 'assistant', content: string) => {
-    const sid = sessionIdRef.current;
-    if (!anonId || !sid || !content) return;
+    if (!anonId || !sessionId || !content) return;
     try {
       await fetch('/api/history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ anon_id: anonId, session_id: sid, role, content }),
+        body: JSON.stringify({ anon_id: anonId, session_id: sessionId, role, content }),
       });
     } catch {
       // non-critical
     }
-  }, [anonId]);
+  }, [anonId, sessionId]);
 
   // On mount: load the most recent conversation into the shared agent.
   // Only the primary instance loads, to avoid duplicate seeding.
@@ -186,12 +182,16 @@ export function Chat({
       try {
         const r = await fetch(`/api/history?anon_id=${anonId}`);
         const { messages: hist } = await r.json() as {
-          messages: { role: string; content: string }[];
+          messages: { role: string; content: string; session_id: string }[];
         };
         if (hist?.length) {
+          // Resume only the most recent session, not every session mixed together.
+          const lastSid = hist[hist.length - 1].session_id;
+          const sessionMsgs = hist.filter((m) => m.session_id === lastSid);
+          setSessionId(lastSid);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (agent as any).setMessages(
-            hist.map((m, i) => ({ id: `hist-${i}`, role: m.role, content: m.content })),
+            sessionMsgs.map((m, i) => ({ id: `hist-${i}`, role: m.role, content: m.content })),
           );
           forceRender((n) => n + 1);
         }
@@ -340,6 +340,8 @@ export function Chat({
       return true;
     }
     if (cmd === '/clear') {
+      // Start a fresh chat session so this conversation is saved separately.
+      setSessionId(crypto.randomUUID());
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages([]);
       forceRender((n) => n + 1);
@@ -384,7 +386,7 @@ export function Chat({
         provider: selectedModel.provider,
         model: selectedModel.id,
         anonId: anonId || undefined,
-        sessionId: sessionIdRef.current || undefined,
+        sessionId: sessionId || undefined,
       },
     }).catch(() => {}).finally(() => { if (anonId) refreshQuota(anonId).catch(() => {}); });
   }
@@ -411,7 +413,7 @@ export function Chat({
       const res = await fetch(`/api/history?anon_id=${anonId}&session_id=${sid}`);
       const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
       if (!hist?.length) return;
-      sessionIdRef.current = sid;
+      setSessionId(sid);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages(
         hist.map((m, i) => ({ id: `resume-${i}`, role: m.role, content: m.content })),
