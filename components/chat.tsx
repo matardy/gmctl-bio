@@ -6,6 +6,8 @@ import type { Lang } from '@/lib/data';
 import { EXPERIENCE } from '@/lib/data';
 import { t } from '@/lib/i18n';
 import { MODELS_BY_PROVIDER, PROVIDER_LABELS, type ModelConfig } from '@/lib/models';
+import { useMediaQuery } from '@/lib/hooks/use-media-query';
+import { CARD_SECTIONS, CARD_COMPONENTS } from '@/components/chat-cards';
 
 interface ChatProps {
   primary?: boolean;
@@ -139,6 +141,8 @@ export function Chat({
   const [histLoading, setHistLoading] = useState(false);
 
   const { agent } = useAgent();
+  const isMobile = useMediaQuery('(max-width: 1024px)');
+  const [cardMsgs, setCardMsgs] = useState<{ id: string; section: string }[]>([]);
 
   const greetText = lang === 'en'
     ? 'gmctl agent · v1.0 · ready'
@@ -251,13 +255,18 @@ export function Chat({
         processedToolCalls.current.add(id);
         let args = call.function?.arguments ?? call.args ?? {};
         if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
-        if (args?.section && NAV_MAP[`/${args.section}`]) scrollTo(args.section);
-        else if (args?.section) scrollTo(args.section);
+        const section = args?.section as string | undefined;
+        if (!section) continue;
+        if (isMobile && CARD_SECTIONS.has(section)) {
+          setCardMsgs((prev) => (prev.some((c) => c.id === id) ? prev : [...prev, { id, section }]));
+        } else {
+          scrollTo(section);
+        }
       }
     }
     if (!isRunning && anonId) refreshQuota(anonId).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawMessages.length, isRunning]);
+  }, [rawMessages.length, isRunning, isMobile]);
 
   // Persist the assistant reply when a run finishes (user msg saved on send).
   // Gated to the primary instance so the shared agent isn't saved twice.
@@ -342,6 +351,7 @@ export function Chat({
     if (cmd === '/clear') {
       // Start a fresh chat session so this conversation is saved separately.
       setSessionId(crypto.randomUUID());
+      setCardMsgs([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages([]);
       forceRender((n) => n + 1);
@@ -414,6 +424,7 @@ export function Chat({
       const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
       if (!hist?.length) return;
       setSessionId(sid);
+      setCardMsgs([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages(
         hist.map((m, i) => ({ id: `resume-${i}`, role: m.role, content: m.content })),
@@ -563,6 +574,14 @@ export function Chat({
                 {isLast && isRunning && <span className="stream-cursor">▋</span>}
               </div>
             );
+          })}
+          {cardMsgs.map((c) => {
+            const Card = CARD_COMPONENTS[c.section];
+            return Card ? (
+              <div key={c.id} className="chat-card-msg">
+                <Card lang={lang} />
+              </div>
+            ) : null;
           })}
         </div>
       )}

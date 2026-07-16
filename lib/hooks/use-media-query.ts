@@ -7,7 +7,11 @@ import { useEffect, useState } from 'react';
  * then resolves to the real match on mount and updates on change.
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
+  const [matches, setMatches] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false,
+  );
 
   useEffect(() => {
     const mql = window.matchMedia(query);

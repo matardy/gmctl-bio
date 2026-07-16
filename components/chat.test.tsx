@@ -1,13 +1,25 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.stubGlobal('matchMedia', vi.fn(() => ({
+  matches: true,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+})));
+
 vi.mock('@copilotkit/react-core/v2', () => ({
   useAgent: () => ({
     agent: {
-      messages: [],
       isRunning: false,
+      messages: [
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'here are the services',
+          toolCalls: [{ id: 't1', function: { name: 'navigate', arguments: '{"section":"services"}' } }],
+        },
+      ],
       addMessage: vi.fn(),
-      addMessages: vi.fn(),
       setMessages: vi.fn(),
       runAgent: vi.fn(async () => {}),
     },
@@ -18,10 +30,11 @@ import { Chat } from './chat';
 
 const noop = () => {};
 
-describe('Chat terminal shell', () => {
-  it('renders the terminal header, quick commands, and the $ prompt', () => {
+describe('Chat generative cards (mobile)', () => {
+  it('renders a services card when the agent navigates to services on mobile', async () => {
     render(
       <Chat
+        primary
         lang="en"
         setLang={noop}
         scrollTo={noop}
@@ -35,9 +48,6 @@ describe('Chat terminal shell', () => {
         setSessionId={noop}
       />,
     );
-    expect(screen.getByText('// gmctl agent')).toBeInTheDocument();
-    expect(screen.getByText(/claude-haiku-4\.5/)).toBeInTheDocument();
-    expect(screen.getByText('/about')).toBeInTheDocument();
-    expect(screen.getByText('$')).toBeInTheDocument();
+    expect(await screen.findByText(/1:1 AI Career Mentorship/)).toBeInTheDocument();
   });
 });
