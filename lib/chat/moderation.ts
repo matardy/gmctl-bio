@@ -1,8 +1,8 @@
 import type { BaseMessage } from '@langchain/core/messages';
-import { observe, updateActiveObservation } from '@langfuse/tracing';
 import { z } from 'zod';
 import { getChatModel } from '@/lib/agent/models';
 import { getMessageText, inferResponseLanguage } from '@/lib/agent/messages';
+import { getLangfuseCallbacks } from '@/lib/tracing/langfuse';
 
 export type TopicVerdict = 'on_topic' | 'off_topic' | 'error';
 export type ModerationActionVerdict = 'allow' | 'warn' | 'block' | 'error';
@@ -125,9 +125,12 @@ const classifyTopicConversationImpl = async (input: {
   try {
     const model = getChatModel('openrouter', input.model);
     const structured = model.withStructuredOutput(moderationSchema, { name: 'classify_topic' });
-    const object = await withTimeout(structured.invoke(prompt), input.timeoutMs);
+    const object = await withTimeout(
+      structured.invoke(prompt, { callbacks: getLangfuseCallbacks({ metadata: { agent: 'topic-guard' } }) }),
+      input.timeoutMs,
+    );
 
-    const moderationResult: TopicModerationResult = {
+    return {
       verdict: object.label,
       reasonCode: object.reasonCode,
       rawLabel: object.label,
@@ -135,39 +138,14 @@ const classifyTopicConversationImpl = async (input: {
       // usage is intentionally not persisted (see migration spec).
       usage: null,
     };
-
-    updateActiveObservation({
-      output: moderationResult,
-      metadata: {
-        transcriptPreview: transcript.slice(0, 500),
-      },
-    }, { asType: 'guardrail' });
-
-    return moderationResult;
   } catch {
-    const moderationResult: TopicModerationResult = {
+    return {
       verdict: 'error',
       reasonCode: 'timeout_or_provider_error',
       rawLabel: null,
       usage: null,
     };
-
-    updateActiveObservation({
-      level: 'WARNING',
-      output: moderationResult,
-      statusMessage: 'topic_moderation_error',
-      metadata: {
-        transcriptPreview: transcript.slice(0, 500),
-      },
-    }, { asType: 'guardrail' });
-
-    return moderationResult;
   }
 };
 
-export const classifyTopicConversation = observe(classifyTopicConversationImpl, {
-  name: 'topic-guard',
-  asType: 'guardrail',
-  captureInput: false,
-  captureOutput: true,
-});
+export const classifyTopicConversation = classifyTopicConversationImpl;
