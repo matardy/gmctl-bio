@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CopilotKit } from '@copilotkit/react-core/v2';
 import '@copilotkit/react-core/v2/styles.css';
+import { useMediaQuery } from '@/lib/hooks/use-media-query';
 import { Boot } from '@/components/boot';
 import { Nav } from '@/components/nav';
 import { Chat } from '@/components/chat';
@@ -59,6 +60,12 @@ export default function Page() {
   const [selectedModel, setSelectedModel] = useState<ModelConfig>(DEFAULT_MODEL);
   const [anonId, setAnonId] = useState('');
   const [sessionId, setSessionId] = useState('');
+  const isMobile = useMediaQuery('(max-width: 1024px)');
+
+  // On mobile the chat is the primary landing view — open it by default.
+  useEffect(() => {
+    if (isMobile) setMobileChat(true);
+  }, [isMobile]);
 
   useEffect(() => {
     const key = 'gmctl_anon_id';
