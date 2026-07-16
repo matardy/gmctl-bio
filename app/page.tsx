@@ -54,7 +54,7 @@ export default function Page() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [activeId, setActiveId] = useState('home');
   const [tlFilter, setTlFilter] = useState<TlFilter>('all');
-  const [blogFilter] = useState('');
+  const [blogFilter, setBlogFilter] = useState('');
   const [mobileChat, setMobileChat] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ModelConfig>(DEFAULT_MODEL);
   const [anonId, setAnonId] = useState('');
@@ -145,10 +145,15 @@ export default function Page() {
 
         <Chat
           lang={lang}
+          setLang={setLang}
           scrollTo={scrollTo}
+          setTheme={setTheme}
+          setTlFilter={setTlFilter}
+          setBlogFilter={setBlogFilter}
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           anonId={anonId}
+          sessionId={sessionId.current}
         />
       </div>
 
@@ -196,10 +201,15 @@ export default function Page() {
       <div className={`chat-overlay${mobileChat ? ' open' : ''}`} onClick={() => setMobileChat(false)} />
       <Chat
         lang={lang}
+        setLang={setLang}
         scrollTo={scrollTo}
+        setTheme={setTheme}
+        setTlFilter={setTlFilter}
+        setBlogFilter={setBlogFilter}
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}
         anonId={anonId}
+        sessionId={sessionId.current}
         className={`chat-mobile${mobileChat ? ' open' : ''}`}
         onClose={() => setMobileChat(false)}
       />
