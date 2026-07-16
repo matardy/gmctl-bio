@@ -127,7 +127,6 @@ export function Chat({
   const [inputVal, setInputVal] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const processedToolCalls = useRef(new Set<string>());
-  const greetedRef = useRef(false);
   const loadedRef = useRef(false);
   const prevRunningRef = useRef(false);
   const sessionIdRef = useRef('');
@@ -161,14 +160,6 @@ export function Chat({
     forceRender((n) => n + 1);
   }, [agent]);
 
-  const seedGreeting = useCallback(() => {
-    addMsg('system', greetText, 'greet-0');
-    addMsg('assistant', greetBody, 'greet-1');
-    addMsg('assistant', greetTip, 'greet-2');
-    greetedRef.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addMsg, greetText, greetBody, greetTip]);
-
   const saveMessage = useCallback(async (role: 'user' | 'assistant', content: string) => {
     const sid = sessionIdRef.current;
     if (!anonId || !sid || !content) return;
@@ -183,8 +174,11 @@ export function Chat({
     }
   }, [anonId]);
 
-  // On mount: load the most recent conversation; fall back to the greeting.
-  // Only the primary instance seeds/loads the shared agent to avoid duplicates.
+  // On mount: load the most recent conversation into the shared agent.
+  // Only the primary instance loads, to avoid duplicate seeding.
+  // The greeting is display-only (rendered when the agent has no messages),
+  // never added to agent.messages — a mid-list system/greeting message would
+  // break the model call.
   useEffect(() => {
     if (!primary || !agent || loadedRef.current || !anonId) return;
     loadedRef.current = true;
@@ -200,13 +194,10 @@ export function Chat({
             hist.map((m, i) => ({ id: `hist-${i}`, role: m.role, content: m.content })),
           );
           forceRender((n) => n + 1);
-          return;
         }
       } catch {
-        // ignore — fall through to greeting
+        // ignore — greeting shows while the agent is empty
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (!greetedRef.current && ((agent as any).messages ?? []).length === 0) seedGreeting();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent, anonId]);
@@ -351,8 +342,7 @@ export function Chat({
     if (cmd === '/clear') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages([]);
-      greetedRef.current = false;
-      seedGreeting();
+      forceRender((n) => n + 1);
       return true;
     }
     if (first === '/lang') {
@@ -422,7 +412,6 @@ export function Chat({
       const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
       if (!hist?.length) return;
       sessionIdRef.current = sid;
-      greetedRef.current = true;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages(
         hist.map((m, i) => ({ id: `resume-${i}`, role: m.role, content: m.content })),
@@ -557,6 +546,13 @@ export function Chat({
         </div>
       ) : (
         <div className="chat-body" ref={bodyRef}>
+          {messages.length === 0 && (
+            <>
+              <div className="msg sys">{greetText}</div>
+              <div className="msg bot">{greetBody}</div>
+              <div className="msg bot">{greetTip}</div>
+            </>
+          )}
           {messages.map((m, idx) => {
             const isLast = idx === messages.length - 1;
             return (
