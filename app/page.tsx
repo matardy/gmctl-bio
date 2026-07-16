@@ -144,6 +144,7 @@ export default function Page() {
         </main>
 
         <Chat
+          primary
           lang={lang}
           setLang={setLang}
           scrollTo={scrollTo}

@@ -8,6 +8,7 @@ import { t } from '@/lib/i18n';
 import { MODELS_BY_PROVIDER, PROVIDER_LABELS, type ModelConfig } from '@/lib/models';
 
 interface ChatProps {
+  primary?: boolean;
   lang: Lang;
   setLang: (l: Lang) => void;
   scrollTo: (id: string) => void;
@@ -33,6 +34,22 @@ interface ViewMsg {
   id: string;
   kind: 'sys' | 'bot' | 'user';
   text: string;
+}
+
+interface SessionSummary {
+  session_id: string;
+  started_at: string;
+  preview: string;
+  count: number;
+}
+
+function formatSessionDate(iso: string, lang: Lang): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  if (diffDays === 0) return lang === 'en' ? 'today' : 'hoy';
+  if (diffDays === 1) return lang === 'en' ? 'yesterday' : 'ayer';
+  return d.toLocaleDateString(lang === 'es' ? 'es-EC' : 'en-US', { month: 'short', day: 'numeric' });
 }
 
 const QUICK_EN = ['/about', '/work', '/services', '/writing', '/contact', '/help'];
@@ -100,6 +117,7 @@ function contentToText(content: any): string {
 }
 
 export function Chat({
+  primary = false,
   lang, setLang, scrollTo, setTheme, setTlFilter, setBlogFilter,
   selectedModel, onModelChange, anonId, sessionId, className = '', onClose,
 }: ChatProps) {
@@ -110,12 +128,21 @@ export function Chat({
   const [modelOpen, setModelOpen] = useState(false);
   const processedToolCalls = useRef(new Set<string>());
   const greetedRef = useRef(false);
+  const loadedRef = useRef(false);
+  const prevRunningRef = useRef(false);
+  const sessionIdRef = useRef('');
   const [, forceRender] = useState(0);
   const [quota, setQuota] = useState<QuotaState>({
     tokensUsed24h: 0, tokensLimit24h: 0, tokensRemaining24h: 0, quotaExhausted: false,
   });
+  const [showHistory, setShowHistory] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [histLoading, setHistLoading] = useState(false);
 
   const { agent } = useAgent();
+
+  // Track the active session id for saves + resumes (seeded from the prop).
+  if (!sessionIdRef.current && sessionId) sessionIdRef.current = sessionId;
 
   const greetText = lang === 'en'
     ? 'gmctl agent · v1.0 · ready'
@@ -134,18 +161,55 @@ export function Chat({
     forceRender((n) => n + 1);
   }, [agent]);
 
-  // Seed the greeting once the agent is available and empty.
-  useEffect(() => {
-    if (!agent || greetedRef.current) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (((agent as any).messages ?? []).length === 0) {
-      addMsg('system', greetText, 'greet-0');
-      addMsg('assistant', greetBody, 'greet-1');
-      addMsg('assistant', greetTip, 'greet-2');
-    }
+  const seedGreeting = useCallback(() => {
+    addMsg('system', greetText, 'greet-0');
+    addMsg('assistant', greetBody, 'greet-1');
+    addMsg('assistant', greetTip, 'greet-2');
     greetedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent]);
+  }, [addMsg, greetText, greetBody, greetTip]);
+
+  const saveMessage = useCallback(async (role: 'user' | 'assistant', content: string) => {
+    const sid = sessionIdRef.current;
+    if (!anonId || !sid || !content) return;
+    try {
+      await fetch('/api/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anon_id: anonId, session_id: sid, role, content }),
+      });
+    } catch {
+      // non-critical
+    }
+  }, [anonId]);
+
+  // On mount: load the most recent conversation; fall back to the greeting.
+  // Only the primary instance seeds/loads the shared agent to avoid duplicates.
+  useEffect(() => {
+    if (!primary || !agent || loadedRef.current || !anonId) return;
+    loadedRef.current = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/history?anon_id=${anonId}`);
+        const { messages: hist } = await r.json() as {
+          messages: { role: string; content: string }[];
+        };
+        if (hist?.length) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (agent as any).setMessages(
+            hist.map((m, i) => ({ id: `hist-${i}`, role: m.role, content: m.content })),
+          );
+          forceRender((n) => n + 1);
+          return;
+        }
+      } catch {
+        // ignore — fall through to greeting
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (!greetedRef.current && ((agent as any).messages ?? []).length === 0) seedGreeting();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent, anonId]);
 
   const refreshQuota = useCallback(async (id: string) => {
     try {
@@ -203,6 +267,20 @@ export function Chat({
     if (!isRunning && anonId) refreshQuota(anonId).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawMessages.length, isRunning]);
+
+  // Persist the assistant reply when a run finishes (user msg saved on send).
+  // Gated to the primary instance so the shared agent isn't saved twice.
+  useEffect(() => {
+    if (primary && prevRunningRef.current && !isRunning) {
+      const last = rawMessages[rawMessages.length - 1];
+      if (last && last.role !== 'user') {
+        const text = contentToText(last.content).trim();
+        if (text) saveMessage('assistant', text);
+      }
+    }
+    prevRunningRef.current = isRunning;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]);
 
   // Scroll to bottom on new content.
   useEffect(() => {
@@ -274,7 +352,7 @@ export function Chat({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages([]);
       greetedRef.current = false;
-      forceRender((n) => n + 1);
+      seedGreeting();
       return true;
     }
     if (first === '/lang') {
@@ -309,15 +387,50 @@ export function Chat({
 
   function send(text: string) {
     addMsg('user', text);
+    saveMessage('user', text);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (agent as any)?.runAgent({
       forwardedProps: {
         provider: selectedModel.provider,
         model: selectedModel.id,
         anonId: anonId || undefined,
-        sessionId: sessionId || undefined,
+        sessionId: sessionIdRef.current || undefined,
       },
     }).catch(() => {}).finally(() => { if (anonId) refreshQuota(anonId).catch(() => {}); });
+  }
+
+  async function openHistory() {
+    if (!anonId) return;
+    setShowHistory(true);
+    setHistLoading(true);
+    try {
+      const res = await fetch(`/api/sessions?anon_id=${anonId}`);
+      const { sessions: data } = await res.json() as { sessions: SessionSummary[] };
+      setSessions(data ?? []);
+    } catch {
+      setSessions([]);
+    } finally {
+      setHistLoading(false);
+    }
+  }
+
+  async function resumeSession(sid: string) {
+    if (!anonId) return;
+    setShowHistory(false);
+    try {
+      const res = await fetch(`/api/history?anon_id=${anonId}&session_id=${sid}`);
+      const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
+      if (!hist?.length) return;
+      sessionIdRef.current = sid;
+      greetedRef.current = true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (agent as any)?.setMessages(
+        hist.map((m, i) => ({ id: `resume-${i}`, role: m.role, content: m.content })),
+      );
+      forceRender((n) => n + 1);
+    } catch {
+      // ignore
+    }
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -378,6 +491,20 @@ export function Chat({
                 ))}
               </div>
             )}
+            <button
+              className={`chat-hist-btn${showHistory ? ' active' : ''}`}
+              onClick={() => (showHistory ? setShowHistory(false) : openHistory())}
+              data-tip={i18n.modelTips.hist}
+            >
+              {i18n.chat.history}
+            </button>
+            <button
+              className="chat-clear-btn"
+              onClick={() => handleCommand('/clear')}
+              data-tip={i18n.modelTips.clear}
+            >
+              {i18n.chat.clear}
+            </button>
             <span className="chat-live">{i18n.chat.live}</span>
             {onClose && <button className="chat-close-btn" onClick={onClose}>×</button>}
           </div>
@@ -400,17 +527,47 @@ export function Chat({
         </div>
       )}
 
-      <div className="chat-body" ref={bodyRef}>
-        {messages.map((m, idx) => {
-          const isLast = idx === messages.length - 1;
-          return (
-            <div key={m.id} className={`msg ${m.kind}`}>
-              {m.text}
-              {isLast && isRunning && <span className="stream-cursor">▋</span>}
-            </div>
-          );
-        })}
-      </div>
+      {showHistory ? (
+        <div className="chat-history-panel">
+          <div className="chat-history-header">
+            <button
+              className="chat-history-back"
+              onClick={() => setShowHistory(false)}
+              aria-label="close history"
+            >
+              {i18n.chat.historyBack}
+            </button>
+            <span>{i18n.chat.historyPanel}</span>
+          </div>
+          {histLoading && <div className="chat-history-empty">{i18n.chat.historyLoading}</div>}
+          {!histLoading && sessions.length === 0 && (
+            <div className="chat-history-empty">{i18n.chat.historyEmpty}</div>
+          )}
+          {!histLoading && sessions.map(s => (
+            <button
+              key={s.session_id}
+              className="chat-history-item"
+              onClick={() => resumeSession(s.session_id)}
+            >
+              <span className="chat-history-date">[{formatSessionDate(s.started_at, lang)}]</span>
+              <span className="chat-history-preview">{s.preview || '(no messages)'}</span>
+              <span className="chat-history-count">{s.count}msg</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="chat-body" ref={bodyRef}>
+          {messages.map((m, idx) => {
+            const isLast = idx === messages.length - 1;
+            return (
+              <div key={m.id} className={`msg ${m.kind}`}>
+                {m.text}
+                {isLast && isRunning && <span className="stream-cursor">▋</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="chat-quick">
         {quick.map(c => (
