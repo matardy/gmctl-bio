@@ -5,7 +5,6 @@ import { Observable, type Subscriber } from 'rxjs';
 import {
   AIMessage,
   HumanMessage,
-  SystemMessage,
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages';
@@ -32,21 +31,29 @@ const DEFAULT_PROVIDER: Provider = 'anthropic';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 
 function toLangChainMessages(messages: AgUiMessage[]): BaseMessage[] {
-  return messages.map((m) => {
+  const out: BaseMessage[] = [];
+  for (const m of messages) {
     const content = m.content ?? '';
     switch (m.role) {
       case 'assistant':
-        return new AIMessage(content);
+        out.push(new AIMessage(content));
+        break;
+      case 'tool':
+        out.push(new ToolMessage({ content, tool_call_id: m.toolCallId ?? '' }));
+        break;
       case 'system':
       case 'developer':
-        return new SystemMessage(content);
-      case 'tool':
-        return new ToolMessage({ content, tool_call_id: m.toolCallId ?? '' });
+        // Drop incoming system/developer messages: createAgent injects its own
+        // system prompt, and a second system message anywhere but position 0
+        // is rejected by the model ("system messages only permitted first").
+        break;
       case 'user':
       default:
-        return new HumanMessage(content);
+        out.push(new HumanMessage(content));
+        break;
     }
-  });
+  }
+  return out;
 }
 
 /**

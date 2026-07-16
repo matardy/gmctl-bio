@@ -19,6 +19,7 @@ interface ChatProps {
   onModelChange: (m: ModelConfig) => void;
   anonId: string;
   sessionId: string;
+  setSessionId: (s: string) => void;
   className?: string;
   onClose?: () => void;
 }
@@ -119,7 +120,7 @@ function contentToText(content: any): string {
 export function Chat({
   primary = false,
   lang, setLang, scrollTo, setTheme, setTlFilter, setBlogFilter,
-  selectedModel, onModelChange, anonId, sessionId, className = '', onClose,
+  selectedModel, onModelChange, anonId, sessionId, setSessionId, className = '', onClose,
 }: ChatProps) {
   const i18n = t(lang);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -127,10 +128,8 @@ export function Chat({
   const [inputVal, setInputVal] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const processedToolCalls = useRef(new Set<string>());
-  const greetedRef = useRef(false);
   const loadedRef = useRef(false);
   const prevRunningRef = useRef(false);
-  const sessionIdRef = useRef('');
   const [, forceRender] = useState(0);
   const [quota, setQuota] = useState<QuotaState>({
     tokensUsed24h: 0, tokensLimit24h: 0, tokensRemaining24h: 0, quotaExhausted: false,
@@ -140,9 +139,6 @@ export function Chat({
   const [histLoading, setHistLoading] = useState(false);
 
   const { agent } = useAgent();
-
-  // Track the active session id for saves + resumes (seeded from the prop).
-  if (!sessionIdRef.current && sessionId) sessionIdRef.current = sessionId;
 
   const greetText = lang === 'en'
     ? 'gmctl agent · v1.0 · ready'
@@ -161,30 +157,24 @@ export function Chat({
     forceRender((n) => n + 1);
   }, [agent]);
 
-  const seedGreeting = useCallback(() => {
-    addMsg('system', greetText, 'greet-0');
-    addMsg('assistant', greetBody, 'greet-1');
-    addMsg('assistant', greetTip, 'greet-2');
-    greetedRef.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addMsg, greetText, greetBody, greetTip]);
-
   const saveMessage = useCallback(async (role: 'user' | 'assistant', content: string) => {
-    const sid = sessionIdRef.current;
-    if (!anonId || !sid || !content) return;
+    if (!anonId || !sessionId || !content) return;
     try {
       await fetch('/api/history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ anon_id: anonId, session_id: sid, role, content }),
+        body: JSON.stringify({ anon_id: anonId, session_id: sessionId, role, content }),
       });
     } catch {
       // non-critical
     }
-  }, [anonId]);
+  }, [anonId, sessionId]);
 
-  // On mount: load the most recent conversation; fall back to the greeting.
-  // Only the primary instance seeds/loads the shared agent to avoid duplicates.
+  // On mount: load the most recent conversation into the shared agent.
+  // Only the primary instance loads, to avoid duplicate seeding.
+  // The greeting is display-only (rendered when the agent has no messages),
+  // never added to agent.messages — a mid-list system/greeting message would
+  // break the model call.
   useEffect(() => {
     if (!primary || !agent || loadedRef.current || !anonId) return;
     loadedRef.current = true;
@@ -192,21 +182,22 @@ export function Chat({
       try {
         const r = await fetch(`/api/history?anon_id=${anonId}`);
         const { messages: hist } = await r.json() as {
-          messages: { role: string; content: string }[];
+          messages: { role: string; content: string; session_id: string }[];
         };
         if (hist?.length) {
+          // Resume only the most recent session, not every session mixed together.
+          const lastSid = hist[hist.length - 1].session_id;
+          const sessionMsgs = hist.filter((m) => m.session_id === lastSid);
+          setSessionId(lastSid);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (agent as any).setMessages(
-            hist.map((m, i) => ({ id: `hist-${i}`, role: m.role, content: m.content })),
+            sessionMsgs.map((m, i) => ({ id: `hist-${i}`, role: m.role, content: m.content })),
           );
           forceRender((n) => n + 1);
-          return;
         }
       } catch {
-        // ignore — fall through to greeting
+        // ignore — greeting shows while the agent is empty
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (!greetedRef.current && ((agent as any).messages ?? []).length === 0) seedGreeting();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent, anonId]);
@@ -349,10 +340,11 @@ export function Chat({
       return true;
     }
     if (cmd === '/clear') {
+      // Start a fresh chat session so this conversation is saved separately.
+      setSessionId(crypto.randomUUID());
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages([]);
-      greetedRef.current = false;
-      seedGreeting();
+      forceRender((n) => n + 1);
       return true;
     }
     if (first === '/lang') {
@@ -394,7 +386,7 @@ export function Chat({
         provider: selectedModel.provider,
         model: selectedModel.id,
         anonId: anonId || undefined,
-        sessionId: sessionIdRef.current || undefined,
+        sessionId: sessionId || undefined,
       },
     }).catch(() => {}).finally(() => { if (anonId) refreshQuota(anonId).catch(() => {}); });
   }
@@ -421,8 +413,7 @@ export function Chat({
       const res = await fetch(`/api/history?anon_id=${anonId}&session_id=${sid}`);
       const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
       if (!hist?.length) return;
-      sessionIdRef.current = sid;
-      greetedRef.current = true;
+      setSessionId(sid);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages(
         hist.map((m, i) => ({ id: `resume-${i}`, role: m.role, content: m.content })),
@@ -557,6 +548,13 @@ export function Chat({
         </div>
       ) : (
         <div className="chat-body" ref={bodyRef}>
+          {messages.length === 0 && (
+            <>
+              <div className="msg sys">{greetText}</div>
+              <div className="msg bot">{greetBody}</div>
+              <div className="msg bot">{greetTip}</div>
+            </>
+          )}
           {messages.map((m, idx) => {
             const isLast = idx === messages.length - 1;
             return (
