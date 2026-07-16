@@ -2,6 +2,7 @@
 
 import { COPY } from '@/lib/data';
 import type { Lang } from '@/lib/data';
+import { t } from '@/lib/i18n';
 
 const SECTION_IDS = ['home', 'about', 'timeline', 'projects', 'services', 'writing', 'voices', 'contact'];
 
@@ -16,6 +17,7 @@ interface NavProps {
 
 export function Nav({ lang, activeId, onNav, onLangToggle, onThemeToggle, theme }: NavProps) {
   const nav = COPY[lang].nav;
+  const i18n = t(lang);
 
   return (
     <nav className="nav" aria-label="sections">
@@ -44,14 +46,24 @@ export function Nav({ lang, activeId, onNav, onLangToggle, onThemeToggle, theme 
         })}
       </ul>
       <div className="nav-footer">
-        <div><span className="dot" />{lang === 'en' ? 'available · 2026' : 'disponible · 2026'}</div>
+        <div><span className="dot" />{i18n.nav.available}</div>
         <div style={{ marginTop: 8 }}>QUITO · 24:00 UTC-5</div>
         <div style={{ marginTop: 16 }}>
-          <a href="#" onClick={(e) => { e.preventDefault(); onLangToggle(); }}>
+          <a
+            href="#"
+            className="has-tip"
+            data-tip={i18n.nav.langTip}
+            onClick={(e) => { e.preventDefault(); onLangToggle(); }}
+          >
             {lang === 'en' ? '/ es' : '/ en'}
           </a>
           {' · '}
-          <a href="#" onClick={(e) => { e.preventDefault(); onThemeToggle(); }}>
+          <a
+            href="#"
+            className="has-tip"
+            data-tip={theme === 'dark' ? i18n.nav.themeTipDark : i18n.nav.themeTipLight}
+            onClick={(e) => { e.preventDefault(); onThemeToggle(); }}
+          >
             {theme === 'dark' ? '/ light' : '/ dark'}
           </a>
         </div>
