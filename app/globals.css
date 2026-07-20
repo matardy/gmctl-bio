@@ -927,3 +927,16 @@ body[data-tour-step="3"] .nav { z-index: 9001 !important; }
   .chat-mobile.open .chat-input-wrap input { font-size: 16px; } /* avoid iOS zoom */
   .chat-card-msg { width: 100%; }
 }
+
+/* Mobile: closed chat is fully hidden (no peek); reopen via bottom nav.
+   Close button is a clear, large tap target that returns to the site. */
+@media (max-width: 1024px) {
+  .chat-mobile { transform: translateY(100%); }
+  .chat-mobile.open { transform: translateY(0); }
+  .chat-close-btn {
+    min-width: 44px; min-height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 22px; color: var(--fg-2);
+  }
+  .chat-close-btn:active { transform: scale(0.94); }
+}

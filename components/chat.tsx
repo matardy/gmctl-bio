@@ -1,7 +1,7 @@
 'use client';
 
 import { useAgent } from '@copilotkit/react-core/v2';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Lang } from '@/lib/data';
 import { EXPERIENCE } from '@/lib/data';
 import { t } from '@/lib/i18n';
@@ -35,6 +35,7 @@ interface QuotaState {
 
 interface ViewMsg {
   id: string;
+  rawIndex: number;
   kind: 'sys' | 'bot' | 'user';
   text: string;
 }
@@ -142,7 +143,7 @@ export function Chat({
 
   const { agent } = useAgent();
   const isMobile = useMediaQuery('(max-width: 1024px)');
-  const [cardMsgs, setCardMsgs] = useState<{ id: string; section: string }[]>([]);
+  const [cardMsgs, setCardMsgs] = useState<{ id: string; afterMessageId: string; section: string }[]>([]);
 
   const greetText = lang === 'en'
     ? 'gmctl agent · v1.0 · ready'
@@ -235,12 +236,17 @@ export function Chat({
   const isRunning: boolean = Boolean((agent as any)?.isRunning);
 
   const messages: ViewMsg[] = rawMessages
-    .map((m) => {
-      const text = contentToText(m.content)
+    .map((m, rawIndex) => {
+      let text = contentToText(m.content)
         .replace(/\{[^{}]*"name"\s*:\s*"[^"]*"[^{}]*"(parameters|arguments)"\s*:[^}]*\}[^}]*\}/g, '')
         .trim();
+      // Drop bare JSON objects: some turns surface tool-call args as a separate
+      // content message (e.g. {"section":"services"}) — never real prose.
+      if (/^\{[\s\S]*\}$/.test(text)) {
+        try { JSON.parse(text); text = ''; } catch { /* keep — not valid JSON */ }
+      }
       const kind: ViewMsg['kind'] = m.id === 'greet-0' ? 'sys' : m.role === 'user' ? 'user' : 'bot';
-      return { id: m.id, kind, text };
+      return { id: m.id, rawIndex, kind, text };
     })
     .filter((m) => m.text.length > 0);
 
@@ -258,7 +264,8 @@ export function Chat({
         const section = args?.section as string | undefined;
         if (!section) continue;
         if (isMobile && CARD_SECTIONS.has(section)) {
-          setCardMsgs((prev) => (prev.some((c) => c.id === id) ? prev : [...prev, { id, section }]));
+          const afterMessageId = m.id as string;
+          setCardMsgs((prev) => (prev.some((c) => c.id === id) ? prev : [...prev, { id, afterMessageId, section }]));
         } else {
           scrollTo(section);
         }
@@ -566,23 +573,45 @@ export function Chat({
               <div className="msg bot">{greetTip}</div>
             </>
           )}
-          {messages.map((m, idx) => {
-            const isLast = idx === messages.length - 1;
-            return (
-              <div key={m.id} className={`msg ${m.kind}`}>
-                {m.text}
-                {isLast && isRunning && <span className="stream-cursor">▋</span>}
-              </div>
-            );
-          })}
-          {cardMsgs.map((c) => {
-            const Card = CARD_COMPONENTS[c.section];
-            return Card ? (
-              <div key={c.id} className="chat-card-msg">
-                <Card lang={lang} />
-              </div>
-            ) : null;
-          })}
+          {(() => {
+            // Resolve each card's anchor to its position in the raw message
+            // list, then flush the card right after the first VISIBLE message
+            // at/after that position — i.e. after the turn's prose answer
+            // (the tool-call/args messages themselves are invisible).
+            const shown = new Set<string>();
+            const anchorIndex = (c: { afterMessageId: string }) =>
+              rawMessages.findIndex((m) => m.id === c.afterMessageId);
+            const renderCard = (c: { id: string; section: string }) => {
+              const Card = CARD_COMPONENTS[c.section];
+              if (!Card) return null;
+              shown.add(c.id);
+              return (
+                <div key={c.id} className="chat-card-msg">
+                  <Card lang={lang} />
+                </div>
+              );
+            };
+            const nodes: ReactNode[] = [];
+            messages.forEach((m, idx) => {
+              const isLast = idx === messages.length - 1;
+              nodes.push(
+                <div key={m.id} className={`msg ${m.kind}`}>
+                  {m.text}
+                  {isLast && isRunning && <span className="stream-cursor">▋</span>}
+                </div>,
+              );
+              for (const c of cardMsgs) {
+                if (shown.has(c.id)) continue;
+                const ai = anchorIndex(c);
+                if (ai !== -1 && ai <= m.rawIndex) nodes.push(renderCard(c));
+              }
+            });
+            // Fallback: cards whose anchor never became visible.
+            for (const c of cardMsgs) {
+              if (!shown.has(c.id)) nodes.push(renderCard(c));
+            }
+            return nodes;
+          })()}
         </div>
       )}
 

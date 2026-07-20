@@ -196,16 +196,6 @@ export default function Page() {
         </div>
       </nav>
 
-      {/* Mobile chat FAB */}
-      <button className="chat-fab" onClick={() => setMobileChat(true)} aria-label="open chat">
-        ◆
-      </button>
-
-      {/* Tap-to-expand zone over the chat peek strip */}
-      {!mobileChat && (
-        <button className="chat-peek-trigger" onClick={() => setMobileChat(true)} aria-label="expand chat" />
-      )}
-
       {/* Mobile chat overlay (only when fully open) */}
       <div className={`chat-overlay${mobileChat ? ' open' : ''}`} onClick={() => setMobileChat(false)} />
       <Chat
