@@ -143,7 +143,9 @@ export class GmctlAgent extends AbstractAgent {
             // `content`, which would leak into the transcript as text.
             if (chunk.tool_call_chunks && chunk.tool_call_chunks.length > 0) continue;
             const msgId: string = chunk.id ?? 'stream';
-            const delta = typeof chunk.content === 'string' ? chunk.content : '';
+            // Anthropic streams text tokens as an array of content blocks, not
+            // a plain string — extract text from either shape.
+            const delta = typeof chunk.content === 'string' ? chunk.content : getMessageText(chunk);
             if (!delta) continue;
             if (!streamedTextIds.has(msgId)) {
               streamedTextIds.add(msgId);
