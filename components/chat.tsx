@@ -175,6 +175,30 @@ export function Chat({
     }
   }, [anonId, sessionId]);
 
+  // Generated cards are client-only display state; persist them per session so
+  // they survive a reload / history resume (the transcript API stores only
+  // role+content, so cards can't be re-derived from it).
+  const persistCards = useCallback((sid: string, cards: { id: string; afterMessageId: string; section: string }[]) => {
+    if (!sid) return;
+    try { localStorage.setItem(`gmctl_cards_${sid}`, JSON.stringify(cards)); } catch { /* ignore */ }
+  }, []);
+
+  const restoreCards = useCallback((sid: string) => {
+    try {
+      const raw = sid ? localStorage.getItem(`gmctl_cards_${sid}`) : null;
+      setCardMsgs(raw ? JSON.parse(raw) : []);
+    } catch {
+      setCardMsgs([]);
+    }
+  }, []);
+
+  // Restore persisted cards whenever the session changes. sessionId is shared
+  // page state, so this runs in BOTH chat instances (desktop + mobile) — not
+  // just the primary one that loads history.
+  useEffect(() => {
+    restoreCards(sessionId);
+  }, [sessionId, restoreCards]);
+
   // On mount: load the most recent conversation into the shared agent.
   // Only the primary instance loads, to avoid duplicate seeding.
   // The greeting is display-only (rendered when the agent has no messages),
@@ -265,7 +289,12 @@ export function Chat({
         if (!section) continue;
         if (isMobile && CARD_SECTIONS.has(section)) {
           const afterMessageId = m.id as string;
-          setCardMsgs((prev) => (prev.some((c) => c.id === id) ? prev : [...prev, { id, afterMessageId, section }]));
+          setCardMsgs((prev) => {
+            if (prev.some((c) => c.id === id)) return prev;
+            const next = [...prev, { id, afterMessageId, section }];
+            persistCards(sessionId, next);
+            return next;
+          });
         } else {
           scrollTo(section);
         }
@@ -273,7 +302,7 @@ export function Chat({
     }
     if (!isRunning && anonId) refreshQuota(anonId).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawMessages.length, isRunning, isMobile]);
+  }, [rawMessages.length, isRunning, isMobile, sessionId]);
 
   // Persist the assistant reply when a run finishes (user msg saved on send).
   // Gated to the primary instance so the shared agent isn't saved twice.
@@ -431,7 +460,6 @@ export function Chat({
       const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
       if (!hist?.length) return;
       setSessionId(sid);
-      setCardMsgs([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (agent as any)?.setMessages(
         hist.map((m, i) => ({ id: `resume-${i}`, role: m.role, content: m.content })),
