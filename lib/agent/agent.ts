@@ -8,10 +8,9 @@ import { moderationMiddleware } from './middleware/moderation';
 import { persistenceMiddleware } from './middleware/persistence';
 import { navigateTool } from './tools/navigate';
 
-const TOKENS_LIMIT_24H = Number(process.env.CHAT_TOKENS_LIMIT_24H ?? '12000');
+const TOKENS_LIMIT_24H = Number(process.env.CHAT_TOKENS_LIMIT_24H ?? '100000');
 const MODERATION_INTERVAL = Number(process.env.CHAT_MODERATION_EVERY_N_USER_MESSAGES ?? '8');
-const MODERATION_MODEL =
-  process.env.CHAT_MODERATION_MODEL ?? 'meta-llama/llama-3.3-70b-instruct:free';
+const MODERATION_MODEL = process.env.CHAT_MODERATION_MODEL ?? 'anthropic/claude-haiku-5.5';
 const MODERATION_TIMEOUT_MS = Number(process.env.CHAT_MODERATION_TIMEOUT_MS ?? '4000');
 
 export interface BuildAgentOptions {
@@ -21,7 +20,7 @@ export interface BuildAgentOptions {
 
 /**
  * Builds a stateless gmctl agent per request. Middleware order matters:
- * custom guards short-circuit before spending tokens, the built-in run cap
+ * quota resolves identity before moderation/persistence, the built-in run cap
  * bounds steps, and persistence records usage after a successful model call.
  */
 export function buildAgent({ provider, model }: BuildAgentOptions) {

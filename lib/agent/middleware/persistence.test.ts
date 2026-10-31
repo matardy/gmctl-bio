@@ -7,8 +7,8 @@ import { persistenceMiddleware } from './persistence';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function runAfter(mw: any, lastMessage: AIMessage | HumanMessage) {
-  const state = { messages: [lastMessage], gmctlQuota: { visitorId: 'visitor-1' } };
-  const runtime = { context: { sessionId: 'sess-1', provider: 'anthropic', model: 'm' } };
+  const state = { messages: [lastMessage], gmctlVisitor: { visitorId: 'visitor-1' } };
+  const runtime = { context: { sessionId: 'sess-1', provider: 'openrouter', model: 'm' } };
   return mw.afterModel.hook(state, runtime);
 }
 

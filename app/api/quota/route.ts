@@ -6,7 +6,7 @@ import {
   resolveVisitorIdentity,
 } from '@/lib/chat/visitor';
 
-const CHAT_TOKENS_LIMIT_24H = Number(process.env.CHAT_TOKENS_LIMIT_24H ?? '12000');
+const CHAT_TOKENS_LIMIT_24H = Number(process.env.CHAT_TOKENS_LIMIT_24H ?? '100000');
 
 export async function GET(req: NextRequest) {
   const anonId = req.nextUrl.searchParams.get('anon_id');

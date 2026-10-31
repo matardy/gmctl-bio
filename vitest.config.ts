@@ -11,6 +11,11 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     include: ["lib/**/*.test.ts", "components/**/*.test.tsx"],
+    // Real-Postgres tests run separately: `npm run test:db`.
+    exclude: ["**/*.db.test.ts", "node_modules/**"],
     setupFiles: ["./tests/setup.ts"],
+    // CopilotKit's v2 entry imports its own CSS; let Vite transform it so
+    // tests can use the real hooks (useRenderTool / useRenderToolCall).
+    server: { deps: { inline: [/@copilotkit\/react-core/] } },
   },
 });

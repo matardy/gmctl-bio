@@ -1,44 +1,25 @@
-import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatOpenAI } from '@langchain/openai';
+import { ChatOpenRouter } from '@langchain/openrouter';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import type { Provider } from '@/lib/models';
+import { DEFAULT_MODEL, type Provider } from '@/lib/models';
 
-const OPENROUTER_HEADERS = {
-  'HTTP-Referer': 'https://gutemberg.dev',
-  'X-Title': 'gmctl agent',
+const MAX_TOKENS = 200;
+
+// OpenRouter app attribution (shows up in the OpenRouter dashboard).
+const ATTRIBUTION = {
+  siteUrl: process.env.OPENROUTER_SITE_URL ?? 'https://gutemberg.dev',
+  siteName: 'gmctl agent',
 };
 
+/**
+ * Chat model for a provider/model pair. The API key comes from
+ * OPENROUTER_API_KEY. Unknown providers fall back to the default model so a
+ * stale client selection never breaks a run.
+ */
 export function getChatModel(provider: Provider, modelId: string): BaseChatModel {
   switch (provider) {
-    case 'anthropic':
-      return new ChatAnthropic({
-        model: modelId,
-        maxTokens: 200,
-        apiKey: process.env.ANTHROPIC_API_KEY ?? '',
-      });
-    case 'nvidia':
-      return new ChatOpenAI({
-        model: modelId,
-        maxTokens: 200,
-        apiKey: process.env.NVIDIA_API_KEY ?? '',
-        configuration: { baseURL: 'https://integrate.api.nvidia.com/v1' },
-      });
     case 'openrouter':
-      return new ChatOpenAI({
-        model: modelId,
-        maxTokens: 200,
-        apiKey: process.env.OPENROUTER_API_KEY ?? '',
-        configuration: {
-          baseURL: 'https://openrouter.ai/api/v1',
-          defaultHeaders: OPENROUTER_HEADERS,
-        },
-      });
+      return new ChatOpenRouter({ model: modelId, maxTokens: MAX_TOKENS, ...ATTRIBUTION });
     default:
-      return new ChatOpenAI({
-        model: 'deepseek-ai/deepseek-v4-pro',
-        maxTokens: 200,
-        apiKey: process.env.NVIDIA_API_KEY ?? '',
-        configuration: { baseURL: 'https://integrate.api.nvidia.com/v1' },
-      });
+      return new ChatOpenRouter({ model: DEFAULT_MODEL.id, maxTokens: MAX_TOKENS, ...ATTRIBUTION });
   }
 }

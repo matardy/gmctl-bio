@@ -7,5 +7,3 @@ tsconfig.tsbuildinfo
 # local tooling / artifacts
 .claude/
 .agents/
-supabase/.branches/
-supabase/.temp/

@@ -1,11 +1,26 @@
 'use client';
 
-import { useAgent } from '@copilotkit/react-core/v2';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  CopilotKitCoreRuntimeConnectionStatus,
+  useAgent,
+  useCopilotKit,
+  useRenderToolCall,
+} from '@copilotkit/react-core/v2';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { Lang } from '@/lib/data';
 import { EXPERIENCE } from '@/lib/data';
 import { t } from '@/lib/i18n';
-import { MODELS_BY_PROVIDER, PROVIDER_LABELS, type ModelConfig } from '@/lib/models';
+import { MODELS_BY_PROVIDER, PROVIDER_LABELS, PROVIDERS, type ModelConfig } from '@/lib/models';
+import { useMediaQuery } from '@/lib/hooks/use-media-query';
+import { CARD_SECTIONS } from '@/components/chat-cards';
+import { useSectionCardRenderer } from '@/components/chat-cards/use-section-card-renderer';
+import {
+  collectToolCalls,
+  historyToAgentMessages,
+  type AgentMessageLike,
+  type HistoryRowLike,
+  type ToolCallRecord,
+} from '@/lib/chat/transcript';
 
 interface ChatProps {
   primary?: boolean;
@@ -24,17 +39,22 @@ interface ChatProps {
   onClose?: () => void;
 }
 
-interface QuotaState {
-  tokensUsed24h: number;
-  tokensLimit24h: number;
-  tokensRemaining24h: number;
-  quotaExhausted: boolean;
-}
+type ToolCallLike = NonNullable<AgentMessageLike['toolCalls']>[number];
 
 interface ViewMsg {
   id: string;
   kind: 'sys' | 'bot' | 'user';
   text: string;
+  toolCalls: ToolCallLike[];
+}
+
+type HistoryRow = HistoryRowLike & { session_id: string };
+
+interface QuotaState {
+  tokensUsed24h: number;
+  tokensLimit24h: number;
+  tokensRemaining24h: number;
+  quotaExhausted: boolean;
 }
 
 interface SessionSummary {
@@ -130,6 +150,8 @@ export function Chat({
   const processedToolCalls = useRef(new Set<string>());
   const loadedRef = useRef(false);
   const prevRunningRef = useRef(false);
+  // Index in agent.messages where the current run's output starts.
+  const runStartRef = useRef(0);
   const [, forceRender] = useState(0);
   const [quota, setQuota] = useState<QuotaState>({
     tokensUsed24h: 0, tokensLimit24h: 0, tokensRemaining24h: 0, quotaExhausted: false,
@@ -139,6 +161,18 @@ export function Chat({
   const [histLoading, setHistLoading] = useState(false);
 
   const { agent } = useAgent();
+  const { copilotkit } = useCopilotKit();
+  // Until CopilotKit has synced with the runtime, useAgent() returns a
+  // provisional agent that is swapped for the real (empty) one on connect —
+  // anything restored into it is lost.
+  const agentReady =
+    !copilotkit.runtimeUrl ||
+    copilotkit.runtimeConnectionStatus === CopilotKitCoreRuntimeConnectionStatus.Connected;
+  const isMobile = useMediaQuery('(max-width: 1024px)');
+  // Generative UI: CopilotKit renders the agent's `navigate` tool calls as
+  // section cards (mobile) via the registered renderer.
+  useSectionCardRenderer(lang, isMobile);
+  const renderToolCall = useRenderToolCall();
 
   const greetText = lang === 'en'
     ? 'gmctl agent · v1.0 · ready'
@@ -157,18 +191,41 @@ export function Chat({
     forceRender((n) => n + 1);
   }, [agent]);
 
-  const saveMessage = useCallback(async (role: 'user' | 'assistant', content: string) => {
+  const saveMessage = useCallback(async (
+    role: 'user' | 'assistant',
+    content: string,
+    toolCalls: ToolCallRecord[] = [],
+  ) => {
     if (!anonId || !sessionId || !content) return;
     try {
       await fetch('/api/history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ anon_id: anonId, session_id: sessionId, role, content }),
+        body: JSON.stringify({
+          anon_id: anonId,
+          session_id: sessionId,
+          role,
+          content,
+          // Stored so the generated cards re-render after a reload/resume.
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        }),
       });
     } catch {
       // non-critical
     }
   }, [anonId, sessionId]);
+
+  // Replace the agent transcript with stored history. Restored tool calls are
+  // marked as handled so they redraw their cards without re-scrolling the site.
+  const restoreHistory = useCallback((rows: HistoryRowLike[], idPrefix: string) => {
+    const restored = historyToAgentMessages(rows, idPrefix);
+    for (const m of restored) {
+      for (const call of m.toolCalls ?? []) processedToolCalls.current.add(call.id);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (agent as any)?.setMessages(restored);
+    forceRender((n) => n + 1);
+  }, [agent]);
 
   // On mount: load the most recent conversation into the shared agent.
   // Only the primary instance loads, to avoid duplicate seeding.
@@ -176,31 +233,25 @@ export function Chat({
   // never added to agent.messages — a mid-list system/greeting message would
   // break the model call.
   useEffect(() => {
-    if (!primary || !agent || loadedRef.current || !anonId) return;
+    if (!primary || !agent || !agentReady || loadedRef.current || !anonId) return;
     loadedRef.current = true;
     (async () => {
       try {
         const r = await fetch(`/api/history?anon_id=${anonId}`);
-        const { messages: hist } = await r.json() as {
-          messages: { role: string; content: string; session_id: string }[];
-        };
+        const { messages: hist } = await r.json() as { messages: HistoryRow[] };
         if (hist?.length) {
           // Resume only the most recent session, not every session mixed together.
           const lastSid = hist[hist.length - 1].session_id;
-          const sessionMsgs = hist.filter((m) => m.session_id === lastSid);
           setSessionId(lastSid);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (agent as any).setMessages(
-            sessionMsgs.map((m, i) => ({ id: `hist-${i}`, role: m.role, content: m.content })),
-          );
-          forceRender((n) => n + 1);
+          restoreHistory(hist.filter((m) => m.session_id === lastSid), 'hist');
         }
-      } catch {
-        // ignore — greeting shows while the agent is empty
+      } catch (error) {
+        // Non-fatal: the greeting shows while the agent is empty.
+        console.warn('[chat] could not restore the last conversation', error);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent, anonId]);
+  }, [agent, anonId, agentReady]);
 
   const refreshQuota = useCallback(async (id: string) => {
     try {
@@ -231,16 +282,27 @@ export function Chat({
   const isRunning: boolean = Boolean((agent as any)?.isRunning);
 
   const messages: ViewMsg[] = rawMessages
+    // Tool results are data for the renderers, never transcript lines.
+    .filter((m) => m.role !== 'tool')
     .map((m) => {
-      const text = contentToText(m.content)
+      let text = contentToText(m.content)
         .replace(/\{[^{}]*"name"\s*:\s*"[^"]*"[^{}]*"(parameters|arguments)"\s*:[^}]*\}[^}]*\}/g, '')
         .trim();
+      // Drop bare JSON objects: some turns surface tool-call args as a separate
+      // content message (e.g. {"section":"services"}) — never real prose.
+      if (/^\{[\s\S]*\}$/.test(text)) {
+        try { JSON.parse(text); text = ''; } catch { /* keep — not valid JSON */ }
+      }
       const kind: ViewMsg['kind'] = m.id === 'greet-0' ? 'sys' : m.role === 'user' ? 'user' : 'bot';
-      return { id: m.id, kind, text };
+      const toolCalls: ToolCallLike[] = m.role === 'assistant' ? m.toolCalls ?? [] : [];
+      return { id: m.id, kind, text, toolCalls };
     })
-    .filter((m) => m.text.length > 0);
+    .filter((m) => m.text.length > 0 || m.toolCalls.length > 0);
+  const lastTextId = [...messages].reverse().find((m) => m.text.length > 0)?.id;
 
-  // React to navigate tool calls → scroll + refresh quota after each run.
+  // React to navigate tool calls → scroll the site (cards for pilot sections
+  // on mobile are drawn by the generative-UI renderer instead), and refresh
+  // the quota after each run.
   useEffect(() => {
     for (const m of rawMessages) {
       const toolCalls = m.toolCalls ?? m.tool_calls ?? [];
@@ -251,23 +313,26 @@ export function Chat({
         processedToolCalls.current.add(id);
         let args = call.function?.arguments ?? call.args ?? {};
         if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
-        if (args?.section && NAV_MAP[`/${args.section}`]) scrollTo(args.section);
-        else if (args?.section) scrollTo(args.section);
+        const section = args?.section as string | undefined;
+        if (!section) continue;
+        if (!(isMobile && CARD_SECTIONS.has(section))) scrollTo(section);
       }
     }
     if (!isRunning && anonId) refreshQuota(anonId).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawMessages.length, isRunning]);
+  }, [rawMessages.length, isRunning, isMobile]);
 
-  // Persist the assistant reply when a run finishes (user msg saved on send).
-  // Gated to the primary instance so the shared agent isn't saved twice.
+  // Persist the assistant reply when a run finishes (user msg saved on send),
+  // with the run's tool calls so its cards survive a reload. Gated to the
+  // primary instance so the shared agent isn't saved twice.
   useEffect(() => {
     if (primary && prevRunningRef.current && !isRunning) {
-      const last = rawMessages[rawMessages.length - 1];
-      if (last && last.role !== 'user') {
-        const text = contentToText(last.content).trim();
-        if (text) saveMessage('assistant', text);
-      }
+      const runMsgs = rawMessages.slice(runStartRef.current) as AgentMessageLike[];
+      const lastReply = [...runMsgs]
+        .reverse()
+        .find((m) => m.role === 'assistant' && contentToText(m.content).trim());
+      const text = lastReply ? contentToText(lastReply.content).trim() : '';
+      if (text) saveMessage('assistant', text, collectToolCalls(runMsgs));
     }
     prevRunningRef.current = isRunning;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -381,6 +446,8 @@ export function Chat({
     addMsg('user', text);
     saveMessage('user', text);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    runStartRef.current = (agent as any)?.messages?.length ?? 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (agent as any)?.runAgent({
       forwardedProps: {
         provider: selectedModel.provider,
@@ -411,14 +478,10 @@ export function Chat({
     setShowHistory(false);
     try {
       const res = await fetch(`/api/history?anon_id=${anonId}&session_id=${sid}`);
-      const { messages: hist } = await res.json() as { messages: { role: string; content: string }[] };
+      const { messages: hist } = await res.json() as { messages: HistoryRow[] };
       if (!hist?.length) return;
       setSessionId(sid);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (agent as any)?.setMessages(
-        hist.map((m, i) => ({ id: `resume-${i}`, role: m.role, content: m.content })),
-      );
-      forceRender((n) => n + 1);
+      restoreHistory(hist, 'resume');
     } catch {
       // ignore
     }
@@ -445,12 +508,9 @@ export function Chat({
   }
 
   const quick = lang === 'en' ? QUICK_EN : QUICK_ES;
-  const providers = (['nvidia', 'openrouter', 'anthropic'] as const);
 
   return (
     <aside className={`chat ${className}`} aria-label="assistant">
-      {onClose && <div className="chat-drag-handle" />}
-
       <div className="chat-head">
         <div className="chat-head-top">
           <span className="chat-head-label">// gmctl agent</span>
@@ -464,7 +524,7 @@ export function Chat({
             </button>
             {modelOpen && (
               <div className="model-panel">
-                {providers.map(prov => (
+                {PROVIDERS.map(prov => (
                   <div key={prov} className="model-group">
                     <div className="model-group-label">{PROVIDER_LABELS[prov]}</div>
                     {MODELS_BY_PROVIDER[prov].map(m => (
@@ -497,8 +557,17 @@ export function Chat({
               {i18n.chat.clear}
             </button>
             <span className="chat-live">{i18n.chat.live}</span>
-            {onClose && <button className="chat-close-btn" onClick={onClose}>×</button>}
           </div>
+          {onClose && (
+            <button
+              type="button"
+              className="chat-close-btn"
+              onClick={onClose}
+              aria-label={lang === 'en' ? 'close chat, back to the site' : 'cerrar chat, volver al sitio'}
+            >
+              ×
+            </button>
+          )}
         </div>
         <div className="chat-head-meta">
           <div className="chat-usage" aria-live="polite">
@@ -555,15 +624,25 @@ export function Chat({
               <div className="msg bot">{greetTip}</div>
             </>
           )}
-          {messages.map((m, idx) => {
-            const isLast = idx === messages.length - 1;
-            return (
-              <div key={m.id} className={`msg ${m.kind}`}>
-                {m.text}
-                {isLast && isRunning && <span className="stream-cursor">▋</span>}
-              </div>
-            );
-          })}
+          {messages.map((m) => (
+            <Fragment key={m.id}>
+              {m.text && (
+                <div className={`msg ${m.kind}`}>
+                  {m.text}
+                  {m.id === lastTextId && isRunning && <span className="stream-cursor">▋</span>}
+                </div>
+              )}
+              {m.toolCalls.map((toolCall) => (
+                <Fragment key={toolCall.id}>
+                  {renderToolCall({
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    toolCall: toolCall as any,
+                    toolMessage: rawMessages.find((t) => t.role === 'tool' && t.toolCallId === toolCall.id),
+                  })}
+                </Fragment>
+              ))}
+            </Fragment>
+          ))}
         </div>
       )}
 
@@ -583,7 +662,18 @@ export function Chat({
           disabled={isRunning}
           autoComplete="off"
           spellCheck={false}
+          enterKeyHint="send"
+          aria-label={lang === 'en' ? 'message the agent' : 'escribe al agente'}
         />
+        {/* Touch keyboards hide Enter-to-send; shown on mobile only (CSS). */}
+        <button
+          type="submit"
+          className="chat-send"
+          disabled={isRunning || !inputVal.trim()}
+          aria-label={lang === 'en' ? 'send' : 'enviar'}
+        >
+          ↵
+        </button>
       </form>
     </aside>
   );

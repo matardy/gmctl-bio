@@ -1,27 +1,26 @@
-import { beforeAll, describe, expect, it } from 'vitest';
-import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatOpenAI } from '@langchain/openai';
+import { describe, expect, it } from 'vitest';
+import { ChatOpenRouter } from '@langchain/openrouter';
+import { DEFAULT_MODEL, MODELS } from '@/lib/models';
 import { getChatModel } from './models';
 
-beforeAll(() => {
-  process.env.ANTHROPIC_API_KEY ||= 'test-anthropic-key';
-  process.env.NVIDIA_API_KEY ||= 'test-nvidia-key';
-  process.env.OPENROUTER_API_KEY ||= 'test-openrouter-key';
+describe('getChatModel', () => {
+  it('returns a ChatOpenRouter for the requested OpenRouter model', () => {
+    const model = getChatModel('openrouter', 'anthropic/claude-haiku-5.5') as ChatOpenRouter;
+    expect(model).toBeInstanceOf(ChatOpenRouter);
+    expect(model.model).toBe('anthropic/claude-haiku-5.5');
+    expect(model.maxTokens).toBe(200);
+  });
+
+  it('falls back to the default model for an unknown provider', () => {
+    const model = getChatModel('nope' as never, 'whatever') as ChatOpenRouter;
+    expect(model).toBeInstanceOf(ChatOpenRouter);
+    expect(model.model).toBe(DEFAULT_MODEL.id);
+  });
 });
 
-describe('getChatModel', () => {
-  it('returns a ChatAnthropic instance for anthropic', () => {
-    const model = getChatModel('anthropic', 'claude-haiku-4-5-20251001');
-    expect(model).toBeInstanceOf(ChatAnthropic);
-  });
-
-  it('returns a ChatOpenAI instance for nvidia', () => {
-    const model = getChatModel('nvidia', 'deepseek-ai/deepseek-v4-pro');
-    expect(model).toBeInstanceOf(ChatOpenAI);
-  });
-
-  it('returns a ChatOpenAI instance for openrouter', () => {
-    const model = getChatModel('openrouter', 'qwen/qwen3-coder:free');
-    expect(model).toBeInstanceOf(ChatOpenAI);
+describe('model catalog', () => {
+  it('only lists OpenRouter models and defaults to one of them', () => {
+    expect(MODELS.every((m) => m.provider === 'openrouter')).toBe(true);
+    expect(MODELS).toContain(DEFAULT_MODEL);
   });
 });

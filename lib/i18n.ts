@@ -13,8 +13,8 @@ export const UI = {
       historyEmpty: 'no past sessions found.',
       historyLoading: 'loading...',
       quota: {
-        title: 'quota exhausted',
-        body: 'you reached the 24-hour chat limit.',
+        title: 'daily limit reached',
+        body: 'the generous 24-hour chat budget is used up.',
         contact: 'contact',
         used: 'used',
         remaining: 'remaining',
@@ -48,8 +48,8 @@ export const UI = {
       historyEmpty: 'no hay sesiones anteriores.',
       historyLoading: 'cargando...',
       quota: {
-        title: 'cuota agotada',
-        body: 'alcanzaste el limite de chat de las ultimas 24 horas.',
+        title: 'límite diario alcanzado',
+        body: 'se agotó el presupuesto amplio de chat de las últimas 24 horas.',
         contact: 'contacto',
         used: 'usados',
         remaining: 'restantes',

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CopilotKit } from '@copilotkit/react-core/v2';
 import '@copilotkit/react-core/v2/styles.css';
+import { useMediaQuery } from '@/lib/hooks/use-media-query';
 import { Boot } from '@/components/boot';
 import { Nav } from '@/components/nav';
 import { Chat } from '@/components/chat';
@@ -59,6 +60,12 @@ export default function Page() {
   const [selectedModel, setSelectedModel] = useState<ModelConfig>(DEFAULT_MODEL);
   const [anonId, setAnonId] = useState('');
   const [sessionId, setSessionId] = useState('');
+  const isMobile = useMediaQuery('(max-width: 1024px)');
+
+  // On mobile the chat is the primary landing view — open it by default.
+  useEffect(() => {
+    if (isMobile) setMobileChat(true);
+  }, [isMobile]);
 
   useEffect(() => {
     const key = 'gmctl_anon_id';
@@ -96,6 +103,9 @@ export default function Page() {
     <CopilotKit
       runtimeUrl="/api/copilotkit"
       useSingleEndpoint
+      // CopilotKit's AG-UI inspector is on by default (even in production) and
+      // floats over the chat header on mobile. Visitors should never see it.
+      enableInspector={false}
       properties={{
         provider: selectedModel.provider,
         model: selectedModel.id,
@@ -183,21 +193,11 @@ export default function Page() {
             onClick={() => setMobileChat(true)}
             aria-label="open chat"
           >
-            <span className="nav-icon">≡</span>
-            tweaks
+            <span className="nav-icon">$</span>
+            chat
           </button>
         </div>
       </nav>
-
-      {/* Mobile chat FAB */}
-      <button className="chat-fab" onClick={() => setMobileChat(true)} aria-label="open chat">
-        ◆
-      </button>
-
-      {/* Tap-to-expand zone over the chat peek strip */}
-      {!mobileChat && (
-        <button className="chat-peek-trigger" onClick={() => setMobileChat(true)} aria-label="expand chat" />
-      )}
 
       {/* Mobile chat overlay (only when fully open) */}
       <div className={`chat-overlay${mobileChat ? ' open' : ''}`} onClick={() => setMobileChat(false)} />

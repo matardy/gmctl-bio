@@ -4,8 +4,8 @@ import { getRunContext, gmctlStateSchema } from './run-context';
 
 /**
  * afterModel hook: persists the successful assistant usage event (token
- * counts from the AI message's usage_metadata) to Supabase. Short-circuit
- * paths (quota/moderation) persist their own blocked_response events.
+ * counts from the AI message's usage_metadata) to Postgres. Moderation
+ * short-circuit paths persist their own blocked_response events.
  */
 export function persistenceMiddleware() {
   return createMiddleware({
@@ -20,7 +20,7 @@ export function persistenceMiddleware() {
 
         const usage = last.usage_metadata ?? {};
         await persistUsageEvent({
-          visitorId: state.gmctlQuota?.visitorId,
+          visitorId: state.gmctlVisitor?.visitorId,
           sessionId: ctx.sessionId ?? 'unknown',
           messageId: crypto.randomUUID(),
           direction: 'assistant_output',
