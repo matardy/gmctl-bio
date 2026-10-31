@@ -7,3 +7,4 @@ tsconfig.tsbuildinfo
 # local tooling / artifacts
 .claude/
 .agents/
+.neon
