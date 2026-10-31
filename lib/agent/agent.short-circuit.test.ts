@@ -1,10 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { HumanMessage } from '@langchain/core/messages';
 
-// The quota-exhausted path short-circuits at the first beforeModel hook, so
-// neither Supabase nor the model is actually reached. Stub them so the module
-// graph imports cleanly without env/credentials.
-vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/lib/chat/visitor', () => ({
   getOrCreateVisitorCookieId: async () => ({ value: 'cookie-1' }),
   getRequestIpHash: async () => 'ip-hash',
@@ -17,7 +13,7 @@ vi.mock('@/lib/chat/quota', () => ({
     quotaExhausted: false,
   }),
   loadQuotaSnapshot: async () => ({
-    tokensUsed24h: 99999,
+    tokensUsed24h: 100000,
     tokensRemaining24h: 0,
     quotaExhausted: true,
   }),
@@ -27,15 +23,15 @@ vi.mock('@/lib/chat/quota', () => ({
 import { buildAgent } from './agent';
 
 beforeAll(() => {
-  process.env.ANTHROPIC_API_KEY ||= 'test-anthropic-key';
+  process.env.OPENROUTER_API_KEY ||= 'test-openrouter-key';
 });
 
 describe('agent quota short-circuit (integration)', () => {
   it('returns the canned quota message through the real graph without calling the model', async () => {
-    const agent = buildAgent({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001' });
+    const agent = buildAgent({ provider: 'openrouter', model: 'anthropic/claude-haiku-5.5' });
     const result = await agent.invoke(
       { messages: [new HumanMessage('hi')] },
-      { context: { anonId: 'anon-1', sessionId: 'sess-1', provider: 'anthropic', model: 'm' } },
+      { context: { anonId: 'anon-1', sessionId: 'sess-1', provider: 'openrouter', model: 'anthropic/claude-haiku-5.5' } },
     );
     const last = result.messages[result.messages.length - 1];
     expect(String(last.content)).toContain('quota');

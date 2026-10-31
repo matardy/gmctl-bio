@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { query } from '@/lib/db';
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -93,11 +93,25 @@ export function toUsageInsert(input: PersistUsageEventInput) {
 }
 
 export async function persistUsageEvent(input: PersistUsageEventInput) {
-  const { error } = await supabase.from('chat_usage_events').insert(toUsageInsert(input));
-
-  if (error) {
-    throw error;
-  }
+  const row = toUsageInsert(input);
+  await query(
+    `INSERT INTO chat_usage_events
+       (visitor_id, session_id, message_id, direction, provider, model,
+        input_tokens, output_tokens, total_tokens, estimated_cost_usd)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      row.visitor_id,
+      row.session_id,
+      row.message_id,
+      row.direction,
+      row.provider,
+      row.model,
+      row.input_tokens,
+      row.output_tokens,
+      row.total_tokens,
+      row.estimated_cost_usd,
+    ],
+  );
 }
 
 export async function loadQuotaSnapshot(input: {
@@ -106,20 +120,19 @@ export async function loadQuotaSnapshot(input: {
   now?: Date;
 }) {
   const now = input.now ?? new Date();
-  const since = new Date(now.getTime() - WINDOW_MS).toISOString();
-  const { data, error } = await supabase
-    .from('chat_usage_events')
-    .select('total_tokens, created_at')
-    .eq('visitor_id', input.visitorId)
-    .gte('created_at', since);
+  const since = new Date(now.getTime() - WINDOW_MS);
+  // Sum in the database (served by idx_chat_usage_events_visitor_id_created_at)
+  // instead of shipping every event row to the app.
+  const [row] = await query<{ used: string }>(
+    `SELECT COALESCE(SUM(total_tokens), 0)::bigint AS used
+       FROM chat_usage_events
+      WHERE visitor_id = $1 AND created_at >= $2 AND created_at <= $3`,
+    [input.visitorId, since, now],
+  );
 
-  if (error) {
-    throw error;
-  }
-
-  return computeQuotaSnapshot({
-    now,
+  return applyUsageToQuotaSnapshot({
+    snapshot: createEmptyQuotaSnapshot(input.limit),
     limit: input.limit,
-    events: data ?? [],
+    addedTokens: Number(row?.used ?? 0),
   });
 }

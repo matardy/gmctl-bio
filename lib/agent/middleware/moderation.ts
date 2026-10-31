@@ -1,6 +1,6 @@
 import { createMiddleware, AIMessage } from 'langchain';
-import { supabase } from '@/lib/supabase';
 import { persistUsageEvent } from '@/lib/chat/quota';
+import { hasBeenWarned, recordModerationEvent } from '@/lib/chat/moderation-events';
 import {
   classifyTopicConversation,
   getModerationAction,
@@ -19,7 +19,7 @@ export interface ModerationMiddlewareConfig {
  * beforeModel guard: every `interval` user messages, classifies the
  * conversation topic and applies soft moderation (warn first, block on
  * repeat), short-circuiting with a localized policy message. Reads the
- * resolved visitor id from the `gmctlQuota` state set by the quota middleware.
+ * resolved visitor id from the visitor middleware.
  */
 export function moderationMiddleware(config: ModerationMiddlewareConfig) {
   return createMiddleware({
@@ -36,16 +36,10 @@ export function moderationMiddleware(config: ModerationMiddlewareConfig) {
         if (!shouldRunTopicModeration(userCount, config.interval)) return;
 
         const ctx = getRunContext(runtime);
-        const visitorId = state.gmctlQuota?.visitorId;
+        const visitorId = state.gmctlVisitor?.visitorId;
         const sessionId = ctx.sessionId ?? 'unknown';
 
-        const { data: warningRows, error: warningError } = await supabase
-          .from('topic_moderation_events')
-          .select('id')
-          .eq('visitor_id', visitorId)
-          .eq('verdict', 'warn')
-          .limit(1);
-        if (warningError) throw warningError;
+        const alreadyWarned = await hasBeenWarned(visitorId);
 
         const verdict = await classifyTopicConversation({
           messages: state.messages,
@@ -54,18 +48,17 @@ export function moderationMiddleware(config: ModerationMiddlewareConfig) {
         });
         const action = getModerationAction({
           verdict: verdict.verdict,
-          alreadyWarned: (warningRows?.length ?? 0) > 0,
+          alreadyWarned,
         });
 
-        const { error: insertError } = await supabase.from('topic_moderation_events').insert({
-          visitor_id: visitorId,
-          session_id: sessionId,
-          checked_after_user_message_count: userCount,
+        await recordModerationEvent({
+          visitorId,
+          sessionId,
+          checkedAfterUserMessageCount: userCount,
           verdict: action.verdict,
-          reason_code: verdict.reasonCode,
-          raw_label: verdict.rawLabel,
+          reasonCode: verdict.reasonCode,
+          rawLabel: verdict.rawLabel,
         });
-        if (insertError) throw insertError;
 
         if (!action.shouldCallMainModel) {
           const policyVerdict = action.verdict === 'block' ? 'block' : 'warn';

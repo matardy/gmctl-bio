@@ -1,33 +1,24 @@
+import { insertChatMessage, listHistory } from '@/lib/chat/history';
+import { parseToolCalls } from '@/lib/chat/transcript';
 import {
   getOrCreateVisitorCookieId,
   getRequestIpHash,
   resolveVisitorIdentity,
 } from '@/lib/chat/visitor';
-import { supabase } from '@/lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
-
-const HISTORY_LIMIT = 50;
 
 export async function GET(req: NextRequest) {
   const anon_id = req.nextUrl.searchParams.get('anon_id');
   const session_id = req.nextUrl.searchParams.get('session_id');
   if (!anon_id) return NextResponse.json({ messages: [] });
 
-  let query = supabase
-    .from('chat_messages')
-    .select('role, content, created_at, session_id')
-    .eq('anon_id', anon_id)
-    .order('created_at', { ascending: false })
-    .limit(HISTORY_LIMIT);
-
-  if (session_id) {
-    query = query.eq('session_id', session_id);
+  try {
+    const messages = await listHistory({ anonId: anon_id, sessionId: session_id });
+    return NextResponse.json({ messages });
+  } catch (error) {
+    console.error('list history', error);
+    return NextResponse.json({ messages: [] }, { status: 500 });
   }
-
-  const { data, error } = await query;
-  if (error) return NextResponse.json({ messages: [] }, { status: 500 });
-
-  return NextResponse.json({ messages: (data ?? []).reverse() });
 }
 
 export async function POST(req: NextRequest) {
@@ -36,13 +27,23 @@ export async function POST(req: NextRequest) {
     session_id: string;
     role: 'user' | 'assistant';
     content: string;
+    tool_calls?: unknown;
   };
 
   const { anon_id, session_id, role, content } = body;
   if (!anon_id || !session_id || !role || !content) {
     return NextResponse.json({ error: 'missing fields' }, { status: 400 });
   }
+  if (role !== 'user' && role !== 'assistant') {
+    return NextResponse.json({ error: 'invalid role' }, { status: 400 });
+  }
+  // Only assistant turns carry generative-UI tool calls.
+  const toolCalls = role === 'assistant' ? parseToolCalls(body.tool_calls) : [];
+  if (toolCalls === null) {
+    return NextResponse.json({ error: 'invalid tool_calls' }, { status: 400 });
+  }
 
+  let visitorId: string;
   try {
     const cookie = await getOrCreateVisitorCookieId();
     const ipHash = await getRequestIpHash();
@@ -51,13 +52,17 @@ export async function POST(req: NextRequest) {
       cookieId: cookie.value,
       ipHash,
     });
-    const { error } = await supabase
-      .from('chat_messages')
-      .insert({ anon_id, session_id, visitor_id: visitor.id, role, content });
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  } catch {
+    visitorId = visitor.id;
+  } catch (error) {
+    console.error('resolve visitor', error);
     return NextResponse.json({ error: 'visitor_unavailable' }, { status: 503 });
+  }
+
+  try {
+    await insertChatMessage({ anonId: anon_id, sessionId: session_id, visitorId, role, content, toolCalls });
+  } catch (error) {
+    console.error('insert chat message', error);
+    return NextResponse.json({ error: 'insert_failed' }, { status: 500 });
   }
   return NextResponse.json({ ok: true });
 }

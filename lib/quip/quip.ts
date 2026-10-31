@@ -1,7 +1,7 @@
 import { getChatModel } from '@/lib/agent/models';
 import { getLangfuseCallbacks } from '@/lib/tracing/langfuse';
 
-const QUIP_MODEL = 'mistralai/mistral-7b-instruct';
+const QUIP_MODEL = process.env.CHAT_QUIP_MODEL ?? 'mistralai/mistral-small-3.2-24b-instruct';
 
 const SECTION_LABELS: Record<string, { en: string; es: string }> = {
   home: { en: 'home / hero', es: 'inicio / hero' },

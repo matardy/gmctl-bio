@@ -21,6 +21,9 @@
   --body-font: var(--mono);
   --chat-pad-x: 18px;
   --chat-pad-right: 28px;
+  /* Motion: strong ease-out for UI feedback, iOS-like curve for sheets. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -706,7 +709,10 @@ body[data-tour-step="3"] .nav { z-index: 9001 !important; }
   z-index: 500;
   font-family: var(--mono);
 }
-[data-tip]:hover::after { opacity: 1; }
+/* Hover-only: on touch a tap would leave the tooltip stuck open. */
+@media (hover: hover) and (pointer: fine) {
+  [data-tip]:hover::after { opacity: 1; }
+}
 
 /* Nav tooltips appear to the right (left panel context) */
 .nav [data-tip]::after {
@@ -814,7 +820,7 @@ body[data-tour-step="3"] .nav { z-index: 9001 !important; }
   display: flex; flex-direction: column;
   /* peek state: show 72px (drag handle + header) */
   transform: translateY(calc(100% - 72px));
-  transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+  transition: transform 0.4s var(--ease-drawer);
   will-change: transform;
 }
 .chat-mobile.open { transform: translateY(0); }
@@ -827,11 +833,6 @@ body[data-tour-step="3"] .nav { z-index: 9001 !important; }
   background: transparent; border: none; cursor: pointer;
 }
 
-.chat-drag-handle {
-  width: 36px; height: 4px; border-radius: 2px;
-  background: var(--line-2); margin: 10px auto 0; flex-shrink: 0;
-  cursor: grab;
-}
 
 /* ===== DESKTOP-ONLY: hide mobile elements ===== */
 @media (min-width: 1025px) {
@@ -939,4 +940,126 @@ body[data-tour-step="3"] .nav { z-index: 9001 !important; }
     font-size: 22px; color: var(--fg-2);
   }
   .chat-close-btn:active { transform: scale(0.94); }
+}
+
+/* Keyboard focus is always visible (inputs keep the terminal caret instead). */
+:where(button, a, [role="button"]):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Keyboard shortcut hints mean nothing on touch screens. */
+@media (hover: none) {
+  .hero-keys { display: none; }
+}
+
+.chat-send { display: none; }
+
+/* ===== MOBILE CHAT — full-screen polish ===== */
+@media (max-width: 1024px) {
+  /* `.chat` sets top:0 for the desktop sidebar. With bottom:0 as well, the
+     closed sheet stayed pinned to the top and ~150px of it peeked over the
+     bottom nav after closing. */
+  .chat-mobile { top: auto; }
+  .chat-mobile.open { padding-top: env(safe-area-inset-top); }
+
+  /* Header: title + close on one row, actions on a second row. */
+  .chat-mobile .chat-head { position: relative; padding: 4px 4px 10px 16px; gap: 2px; }
+  .chat-mobile .chat-head-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "label close" "actions actions";
+    align-items: center;
+    row-gap: 0;
+  }
+  .chat-mobile .chat-head-label { grid-area: label; }
+  .chat-mobile .chat-close-btn { grid-area: close; }
+  .chat-mobile .chat-head-actions {
+    grid-area: actions;
+    position: static;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding-right: 12px;
+  }
+  .chat-mobile .chat-live { margin-left: auto; }
+  .chat-mobile .model-badge,
+  .chat-mobile .chat-hist-btn,
+  .chat-mobile .chat-clear-btn {
+    font-size: 11px;
+    padding: 7px 10px;
+    max-width: 170px;
+  }
+  /* 44px hit area without a 44px-tall visual box. */
+  .chat-mobile .model-badge::before,
+  .chat-mobile .chat-hist-btn::before,
+  .chat-mobile .chat-clear-btn::before {
+    content: ''; position: absolute; inset: -7px -3px;
+  }
+  .chat-mobile .chat-head-meta { padding-right: 12px; }
+
+  /* Model picker: full-width panel under the header, roomy rows. */
+  .chat-mobile .model-panel {
+    top: 100%; left: 12px; right: 12px;
+    min-width: 0; max-width: none;
+    max-height: 60dvh; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .chat-mobile .model-option { min-height: 44px; font-size: 13px; }
+
+  /* Readable transcript on a phone. */
+  .chat-mobile .chat-body { padding: 16px; gap: 12px; overscroll-behavior: contain; }
+  .chat-mobile .msg { font-size: 14px; }
+  .chat-mobile .msg.user { font-size: 15px; }
+  .chat-mobile .msg.sys { font-size: 12px; }
+
+  /* Quick commands: one swipeable row instead of two wrapped rows. */
+  .chat-mobile .chat-quick {
+    flex-wrap: nowrap; overflow-x: auto; gap: 8px;
+    padding: 8px 32px 8px 16px;
+    scrollbar-width: none; overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 16px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+  .chat-mobile .chat-quick::-webkit-scrollbar { display: none; }
+  .chat-mobile .chat-quick button {
+    flex-shrink: 0; min-height: 44px; padding: 0 14px; font-size: 11px;
+    scroll-snap-align: start;
+    transition: color 0.15s, border-color 0.15s, transform 160ms var(--ease-out);
+  }
+  .chat-mobile .chat-quick button:active { transform: scale(0.97); }
+
+  /* Input row with a visible send button. */
+  .chat-mobile .chat-input-wrap { padding: 6px 6px 6px 16px; }
+  .chat-mobile .chat-input-wrap input { min-height: 44px; font-size: 16px; } /* 16px: no iOS zoom */
+  .chat-mobile .chat-send {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 44px; min-height: 44px;
+    color: var(--accent); font-size: 18px; font-family: var(--mono);
+    transition: opacity 150ms ease, transform 160ms var(--ease-out);
+  }
+  .chat-mobile .chat-send:disabled { opacity: 0.3; }
+  .chat-mobile .chat-send:active:not(:disabled) { transform: scale(0.94); }
+
+  /* Generative cards: slightly larger type for touch reading. */
+  .chat-mobile .chat-card-title { font-size: 14px; }
+  .chat-mobile .chat-card-stack,
+  .chat-mobile .chat-card-price,
+  .chat-mobile .chat-card-contact { font-size: 13px; }
+}
+
+/* Generated cards ease in when the agent renders them. */
+.chat-card-msg {
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+@starting-style {
+  .chat-card-msg { opacity: 0; transform: translateY(6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-mobile { transition: none; }
+  .chat-card-msg { transition: opacity 150ms ease; }
+  @starting-style {
+    .chat-card-msg { transform: none; }
+  }
 }

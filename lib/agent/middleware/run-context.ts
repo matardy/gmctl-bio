@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
 /**
- * Shared middleware state channel for the resolved visitor + quota snapshot.
- * ALL middleware that read or write `gmctlQuota` must declare this schema so
+ * Shared middleware state channel for the resolved visitor identity.
+ * ALL middleware that read or write `gmctlVisitor` must declare this schema so
  * LangGraph treats it as one shared state channel across before/after hooks.
  */
 export const gmctlStateSchema = z.object({
-  gmctlQuota: z
-    .custom<{ visitorId: string; snapshot: { tokensUsed24h: number; tokensRemaining24h: number; quotaExhausted: boolean } }>()
+  gmctlVisitor: z
+    .custom<{ visitorId: string; snapshot?: { tokensUsed24h: number; tokensRemaining24h: number; quotaExhausted: boolean } }>()
     .optional(),
 });
 

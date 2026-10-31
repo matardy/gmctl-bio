@@ -1,9 +1,17 @@
 import { cookies, headers } from 'next/headers';
-import { supabase } from '@/lib/supabase';
+import { query, withTransaction } from '@/lib/db';
 
 export const VISITOR_COOKIE_NAME = 'gmctl_vid';
 
-const VISITOR_SELECT = 'id, anon_id, server_cookie_id, current_ip_hash, last_seen_at';
+const VISITOR_COLUMNS = 'id, anon_id, server_cookie_id, current_ip_hash, last_seen_at';
+
+// Whitelist of lookup columns: key.kind is interpolated into SQL.
+const LOOKUP_COLUMN: Record<VisitorLookupKey['kind'], string> = {
+  server_cookie_id: 'server_cookie_id',
+  anon_id: 'anon_id',
+};
+
+const UPDATABLE_COLUMNS = ['anon_id', 'server_cookie_id', 'current_ip_hash', 'last_seen_at'] as const;
 
 export interface BuildVisitorLookupInput {
   anonId: string | null;
@@ -27,7 +35,7 @@ export interface VisitorIdentity {
   anon_id: string | null;
   server_cookie_id: string | null;
   current_ip_hash: string | null;
-  last_seen_at?: string;
+  last_seen_at?: Date;
 }
 
 export interface VisitorCookieResult {
@@ -100,21 +108,16 @@ export async function getOrCreateVisitorCookieId(): Promise<VisitorCookieResult>
 }
 
 async function queryVisitorsByKey(key: VisitorLookupKey) {
-  const { data, error } = await supabase
-    .from('visitor_identities')
-    .select(VISITOR_SELECT)
-    .eq(key.kind, key.value)
-    .limit(2);
+  const rows = await query<VisitorIdentity>(
+    `SELECT ${VISITOR_COLUMNS} FROM visitor_identities WHERE ${LOOKUP_COLUMN[key.kind]} = $1 LIMIT 2`,
+    [key.value],
+  );
 
-  if (error) {
-    throw error;
-  }
-
-  if ((data?.length ?? 0) > 1) {
+  if (rows.length > 1) {
     throw new Error(`Multiple visitor rows found for ${key.kind}`);
   }
 
-  return (data ?? []) as VisitorIdentity[];
+  return rows;
 }
 
 async function collectVisitorCandidates(lookup: VisitorLookup) {
@@ -134,21 +137,11 @@ async function collectVisitorCandidates(lookup: VisitorLookup) {
   return visitors;
 }
 
-function mergeVisitorIdentity(
-  visitor: VisitorIdentity,
-  updates: Partial<VisitorIdentity>,
-): VisitorIdentity {
-  return {
-    ...visitor,
-    ...updates,
-  };
-}
-
 function buildCanonicalVisitorUpdates(input: {
   canonical: VisitorIdentity;
   relatedVisitors: VisitorIdentity[];
   lookup: VisitorLookup;
-  now: string;
+  now: Date;
 }) {
   const { canonical, relatedVisitors, lookup, now } = input;
   const updates: Partial<VisitorIdentity> = {
@@ -193,27 +186,39 @@ async function moveVisitorReferences(input: {
   sourceVisitorId: string;
   targetVisitorId: string;
 }) {
-  const tables = ['chat_messages', 'chat_usage_events', 'topic_moderation_events'] as const;
-
-  for (const table of tables) {
-    const { error } = await supabase
-      .from(table)
-      .update({ visitor_id: input.targetVisitorId })
-      .eq('visitor_id', input.sourceVisitorId);
-
-    if (error) {
-      throw error;
+  // All-or-nothing: never leave rows pointing at a half-merged visitor.
+  await withTransaction(async (client) => {
+    for (const table of ['chat_messages', 'chat_usage_events', 'topic_moderation_events']) {
+      await client.query(`UPDATE ${table} SET visitor_id = $1 WHERE visitor_id = $2`, [
+        input.targetVisitorId,
+        input.sourceVisitorId,
+      ]);
     }
-  }
+    await client.query('DELETE FROM visitor_identities WHERE id = $1', [input.sourceVisitorId]);
+  });
+}
 
-  const { error } = await supabase
-    .from('visitor_identities')
-    .delete()
-    .eq('id', input.sourceVisitorId);
+async function insertVisitor(input: BuildVisitorLookupInput, now: Date) {
+  const [row] = await query<VisitorIdentity>(
+    `INSERT INTO visitor_identities (anon_id, server_cookie_id, current_ip_hash, last_seen_at)
+     VALUES ($1, $2, $3, $4)
+     RETURNING ${VISITOR_COLUMNS}`,
+    [input.anonId ?? null, input.cookieId ?? null, input.ipHash, now],
+  );
+  return row;
+}
 
-  if (error) {
-    throw error;
+async function updateVisitor(id: string, updates: Partial<VisitorIdentity>) {
+  const columns = UPDATABLE_COLUMNS.filter((column) => updates[column] !== undefined);
+  const assignments = columns.map((column, i) => `${column} = $${i + 2}`).join(', ');
+  const [row] = await query<VisitorIdentity>(
+    `UPDATE visitor_identities SET ${assignments} WHERE id = $1 RETURNING ${VISITOR_COLUMNS}`,
+    [id, ...columns.map((column) => updates[column])],
+  );
+  if (!row) {
+    throw new Error(`Visitor ${id} disappeared during update`);
   }
+  return row;
 }
 
 export async function findVisitorIdentity(input: BuildVisitorLookupInput) {
@@ -224,32 +229,22 @@ export async function findVisitorIdentity(input: BuildVisitorLookupInput) {
 
 export async function resolveVisitorIdentity(input: BuildVisitorLookupInput) {
   const lookup = buildVisitorLookup(input);
-  const now = new Date().toISOString();
+  const now = new Date();
   let visitors = await collectVisitorCandidates(lookup);
 
   if (visitors.length === 0) {
-    const { data, error } = await supabase
-      .from('visitor_identities')
-      .insert({
-        anon_id: input.anonId ?? null,
-        server_cookie_id: input.cookieId ?? null,
-        current_ip_hash: input.ipHash,
-        last_seen_at: now,
-      })
-      .select(VISITOR_SELECT)
-      .single();
-
-    if (error) {
+    try {
+      visitors = [await insertVisitor(input, now)];
+    } catch (error) {
+      // A concurrent request may have created it first (unique index hit).
       visitors = await collectVisitorCandidates(lookup);
       if (visitors.length === 0) {
         throw error;
       }
-    } else {
-      visitors = [data as VisitorIdentity];
     }
   }
 
-  let canonicalVisitor = visitors[0];
+  const canonicalVisitor = visitors[0];
   for (const duplicateVisitor of visitors.slice(1)) {
     if (duplicateVisitor.id === canonicalVisitor.id) {
       continue;
@@ -259,14 +254,10 @@ export async function resolveVisitorIdentity(input: BuildVisitorLookupInput) {
       sourceVisitorId: duplicateVisitor.id,
       targetVisitorId: canonicalVisitor.id,
     });
-
-    canonicalVisitor = mergeVisitorIdentity(canonicalVisitor, {
-      anon_id: canonicalVisitor.anon_id ?? duplicateVisitor.anon_id,
-      server_cookie_id: canonicalVisitor.server_cookie_id ?? duplicateVisitor.server_cookie_id,
-      current_ip_hash: canonicalVisitor.current_ip_hash ?? duplicateVisitor.current_ip_hash,
-    });
   }
 
+  // Diff against the row as stored, so identifiers inherited from merged
+  // duplicates (via relatedVisitors) are actually written.
   const updates = buildCanonicalVisitorUpdates({
     canonical: canonicalVisitor,
     relatedVisitors: visitors,
@@ -274,29 +265,5 @@ export async function resolveVisitorIdentity(input: BuildVisitorLookupInput) {
     now,
   });
 
-  if (Object.keys(updates).length === 1 && updates.last_seen_at) {
-    const { error } = await supabase
-      .from('visitor_identities')
-      .update({ last_seen_at: updates.last_seen_at })
-      .eq('id', canonicalVisitor.id);
-
-    if (error) {
-      throw error;
-    }
-
-    return mergeVisitorIdentity(canonicalVisitor, updates);
-  }
-
-  const { data, error } = await supabase
-    .from('visitor_identities')
-    .update(updates)
-    .eq('id', canonicalVisitor.id)
-    .select(VISITOR_SELECT)
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return data as VisitorIdentity;
+  return updateVisitor(canonicalVisitor.id, updates);
 }

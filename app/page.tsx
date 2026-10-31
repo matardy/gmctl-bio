@@ -103,6 +103,9 @@ export default function Page() {
     <CopilotKit
       runtimeUrl="/api/copilotkit"
       useSingleEndpoint
+      // CopilotKit's AG-UI inspector is on by default (even in production) and
+      // floats over the chat header on mobile. Visitors should never see it.
+      enableInspector={false}
       properties={{
         provider: selectedModel.provider,
         model: selectedModel.id,
@@ -190,8 +193,8 @@ export default function Page() {
             onClick={() => setMobileChat(true)}
             aria-label="open chat"
           >
-            <span className="nav-icon">≡</span>
-            tweaks
+            <span className="nav-icon">$</span>
+            chat
           </button>
         </div>
       </nav>

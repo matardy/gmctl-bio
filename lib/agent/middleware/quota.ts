@@ -16,17 +16,15 @@ export interface QuotaMiddlewareConfig {
   limit: number;
 }
 
-export interface GmctlQuotaState {
+export interface GmctlVisitorState {
   visitorId: string;
   snapshot: QuotaSnapshot;
 }
 
 /**
- * beforeModel guard: resolves the anonymous visitor, loads the rolling 24h
- * token snapshot from Supabase, and short-circuits with a localized
- * quota-exceeded message when the budget is exhausted. On the happy path it
- * stashes `{ visitorId, snapshot }` under the `gmctlQuota` state key so later
- * middleware (moderation, persistence) can reuse the resolved identity.
+ * Best-effort anonymous daily token guard. This is not a hard anti-abuse
+ * boundary, but it keeps ordinary usage within a configurable 24h budget while
+ * OpenRouter enforces upstream provider limits and spend.
  */
 export function quotaMiddleware(config: QuotaMiddlewareConfig) {
   return createMiddleware({
@@ -37,9 +35,6 @@ export function quotaMiddleware(config: QuotaMiddlewareConfig) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       hook: async (state: any, runtime: any) => {
         const ctx = getRunContext(runtime);
-        // Cookie/IP are request-scoped (next/headers). They harden identity but
-        // are best-effort: if the request scope is unavailable (e.g. resolved
-        // through an async stream), fall back to the client-provided anonId.
         let cookieId: string | null = null;
         let ipHash: string | null = null;
         try {
@@ -48,6 +43,7 @@ export function quotaMiddleware(config: QuotaMiddlewareConfig) {
         } catch (e) {
           console.warn('visitor cookie/ip unavailable, using anonId only', e);
         }
+
         const visitor = await resolveVisitorIdentity({
           anonId: ctx.anonId ?? null,
           cookieId,
@@ -69,12 +65,12 @@ export function quotaMiddleware(config: QuotaMiddlewareConfig) {
 
           return {
             messages: [new AIMessage(getQuotaExceededCopy(state.messages))],
-            gmctlQuota: { visitorId: visitor.id, snapshot },
+            gmctlVisitor: { visitorId: visitor.id, snapshot },
             jumpTo: 'end' as const,
           };
         }
 
-        return { gmctlQuota: { visitorId: visitor.id, snapshot } };
+        return { gmctlVisitor: { visitorId: visitor.id, snapshot } };
       },
     },
   });

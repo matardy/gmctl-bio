@@ -1,24 +1,13 @@
 import { AbstractAgent } from '@ag-ui/client';
 import type { BaseEvent, RunAgentInput } from '@ag-ui/core';
 import { EventType } from '@ag-ui/core';
-import { Observable } from 'rxjs';
-import {
-  AIMessage,
-  HumanMessage,
-  ToolMessage,
-  type BaseMessage,
-} from '@langchain/core/messages';
-import type { Provider } from '@/lib/models';
+import { Observable, type Subscriber } from 'rxjs';
+import type { AIMessage, BaseMessage, ToolMessage } from '@langchain/core/messages';
+import { DEFAULT_MODEL, MODELS, type Provider } from '@/lib/models';
 import { getLangfuseCallbacks } from '@/lib/tracing/langfuse';
 import { buildAgent } from './agent';
-import { getMessageText } from './messages';
-
-interface AgUiMessage {
-  id?: string;
-  role: string;
-  content?: string | null;
-  toolCallId?: string;
-}
+import { getMessageText, inferResponseLanguage } from './messages';
+import { toLangChainMessages, type AgUiMessage } from './to-langchain';
 
 interface RunContext {
   provider: Provider;
@@ -27,41 +16,39 @@ interface RunContext {
   sessionId?: string;
 }
 
-const DEFAULT_PROVIDER: Provider = 'anthropic';
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_PROVIDER: Provider = 'openrouter';
 
-function toLangChainMessages(messages: AgUiMessage[]): BaseMessage[] {
-  const out: BaseMessage[] = [];
-  for (const m of messages) {
-    const content = m.content ?? '';
-    switch (m.role) {
-      case 'assistant':
-        out.push(new AIMessage(content));
-        break;
-      case 'tool':
-        out.push(new ToolMessage({ content, tool_call_id: m.toolCallId ?? '' }));
-        break;
-      case 'system':
-      case 'developer':
-        // Drop incoming system/developer messages: createAgent injects its own
-        // system prompt, and a second system message anywhere but position 0
-        // is rejected by the model ("system messages only permitted first").
-        break;
-      case 'user':
-      default:
-        out.push(new HumanMessage(content));
-        break;
-    }
-  }
-  return out;
+const MODEL_UNAVAILABLE = {
+  en: 'the model is unavailable right now. try again in a moment.',
+  es: 'el modelo no está disponible ahora mismo. intenta de nuevo en un momento.',
+};
+
+function emitAssistantText(subscriber: Subscriber<BaseEvent>, text: string) {
+  const messageId = crypto.randomUUID();
+  subscriber.next({ type: EventType.TEXT_MESSAGE_START, messageId, role: 'assistant' } as unknown as BaseEvent);
+  subscriber.next({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: text } as unknown as BaseEvent);
+  subscriber.next({ type: EventType.TEXT_MESSAGE_END, messageId } as unknown as BaseEvent);
+}
+
+function finishRun(subscriber: Subscriber<BaseEvent>, input: RunAgentInput) {
+  subscriber.next({
+    type: EventType.RUN_FINISHED,
+    threadId: input.threadId,
+    runId: input.runId,
+  } as unknown as BaseEvent);
+  subscriber.complete();
 }
 
 /**
  * Resolves the per-request context (provider/model/anon/session) that the
  * frontend forwards through CopilotKit. Supports both `forwardedProps`
  * (an object) and `context` (an array of { description, value }).
+ *
+ * provider/model come from the client, so they are checked against the
+ * catalog: anything else runs on the default model rather than letting a
+ * visitor pick an arbitrary (expensive) model on our OpenRouter key.
  */
-function resolveRunContext(input: RunAgentInput): RunContext {
+export function resolveRunContext(input: RunAgentInput): RunContext {
   const forwarded = (input.forwardedProps ?? {}) as Record<string, unknown>;
   const fromContext: Record<string, unknown> = {};
   for (const entry of input.context ?? []) {
@@ -70,9 +57,10 @@ function resolveRunContext(input: RunAgentInput): RunContext {
     }
   }
   const merged = { ...fromContext, ...forwarded };
+  const allowed = MODELS.find((m) => m.provider === merged.provider && m.id === merged.model);
   return {
-    provider: (merged.provider as Provider) ?? DEFAULT_PROVIDER,
-    model: (merged.model as string) ?? DEFAULT_MODEL,
+    provider: allowed?.provider ?? DEFAULT_PROVIDER,
+    model: allowed?.id ?? DEFAULT_MODEL.id,
     anonId: merged.anonId as string | undefined,
     sessionId: (merged.sessionId as string | undefined) ?? input.threadId,
   };
@@ -96,8 +84,8 @@ export class GmctlAgent extends AbstractAgent {
           runId: input.runId,
         } as unknown as BaseEvent);
 
+        const lcMessages = toLangChainMessages(input.messages as AgUiMessage[]);
         try {
-          const lcMessages = toLangChainMessages(input.messages as AgUiMessage[]);
           const agent = buildAgent({ provider: ctx.provider, model: ctx.model });
 
           const runConfig = {
@@ -166,12 +154,24 @@ export class GmctlAgent extends AbstractAgent {
             subscriber.next({ type: EventType.TEXT_MESSAGE_END, messageId: id } as unknown as BaseEvent);
           }
 
-          // From the final state: emit tool calls whole (correct reconstruction
-          // for card detection) + any assistant text that never streamed
-          // (middleware short-circuit / canned messages).
+          // From the final state: emit tool calls whole + their results (so
+          // CopilotKit's tool renderers see status "complete"), and any
+          // assistant text that never streamed (middleware short-circuit /
+          // canned messages).
           const finalMsgs = (latestState?.messages ?? []) as BaseMessage[];
           for (let i = lcMessages.length; i < finalMsgs.length; i += 1) {
             const m = finalMsgs[i];
+            if (m.getType() === 'tool') {
+              const toolMsg = m as ToolMessage;
+              subscriber.next({
+                type: EventType.TOOL_CALL_RESULT,
+                messageId: (toolMsg.id as string) ?? crypto.randomUUID(),
+                toolCallId: toolMsg.tool_call_id,
+                content: getMessageText(toolMsg),
+                role: 'tool',
+              } as unknown as BaseEvent);
+              continue;
+            }
             if (m.getType() !== 'ai') continue;
             const ai = m as AIMessage;
             for (const call of ai.tool_calls ?? []) {
@@ -200,18 +200,14 @@ export class GmctlAgent extends AbstractAgent {
             }
           }
 
-          subscriber.next({
-            type: EventType.RUN_FINISHED,
-            threadId: input.threadId,
-            runId: input.runId,
-          } as unknown as BaseEvent);
-          subscriber.complete();
+          finishRun(subscriber, input);
         } catch (error) {
-          subscriber.next({
-            type: EventType.RUN_ERROR,
-            message: error instanceof Error ? error.message : String(error),
-          } as unknown as BaseEvent);
-          subscriber.error(error);
+          // Logged here and traced in Langfuse; the visitor gets a short,
+          // localized notice instead of a silently empty chat.
+          console.error('[gmctl] agent run failed', error);
+          if (cancelled) return;
+          emitAssistantText(subscriber, MODEL_UNAVAILABLE[inferResponseLanguage(lcMessages)]);
+          finishRun(subscriber, input);
         }
       })();
 

@@ -1,16 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { HumanMessage } from '@langchain/core/messages';
 
-const insert = vi.fn(async () => ({ error: null }));
-const limit = vi.fn(async () => ({ data: [] as unknown[], error: null }));
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: () => ({
-      select: () => ({ eq: () => ({ eq: () => ({ limit }) }) }),
-      insert,
-    }),
-  },
+const { recordModerationEvent, hasBeenWarned } = vi.hoisted(() => ({
+  recordModerationEvent: vi.fn(async (_event: unknown) => {}),
+  hasBeenWarned: vi.fn(async (_visitorId: string) => false),
 }));
+vi.mock('@/lib/chat/moderation-events', () => ({ recordModerationEvent, hasBeenWarned }));
 vi.mock('@/lib/chat/quota', () => ({ persistUsageEvent: vi.fn(async () => {}) }));
 vi.mock('@/lib/chat/moderation', async (orig) => {
   const actual = await orig<typeof import('@/lib/chat/moderation')>();
@@ -30,8 +25,8 @@ import { moderationMiddleware } from './moderation';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function runBefore(mw: any, userMsgs: number) {
   const messages = Array.from({ length: userMsgs }, () => new HumanMessage('x'));
-  const state = { messages, gmctlQuota: { visitorId: 'visitor-1' } };
-  const runtime = { context: { sessionId: 'sess-1', provider: 'anthropic', model: 'm' } };
+  const state = { messages, gmctlVisitor: { visitorId: 'visitor-1' } };
+  const runtime = { context: { sessionId: 'sess-1', provider: 'openrouter', model: 'm' } };
   return mw.beforeModel.hook(state, runtime);
 }
 
@@ -44,7 +39,7 @@ describe('moderationMiddleware beforeModel', () => {
       3,
     );
     expect(result).toBeUndefined();
-    expect(insert).not.toHaveBeenCalled();
+    expect(recordModerationEvent).not.toHaveBeenCalled();
   });
 
   it('warns (short-circuits) on first off-topic at the boundary', async () => {
@@ -53,7 +48,15 @@ describe('moderationMiddleware beforeModel', () => {
       8,
     );
     expect(result?.jumpTo).toBe('end');
-    expect(insert).toHaveBeenCalled();
+    expect(hasBeenWarned).toHaveBeenCalledWith('visitor-1');
+    expect(recordModerationEvent).toHaveBeenCalledWith({
+      visitorId: 'visitor-1',
+      sessionId: 'sess-1',
+      checkedAfterUserMessageCount: 8,
+      verdict: 'warn',
+      reasonCode: 'unrelated',
+      rawLabel: 'off_topic',
+    });
     expect(String(result?.messages?.[0]?.content).length).toBeGreaterThan(0);
   });
 });
